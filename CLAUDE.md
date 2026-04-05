@@ -3,6 +3,11 @@
 ## What This Is
 Acquisitions intelligence web app for multifamily real estate investors. Identifies NYC properties where 421-a or J-51 tax abatements are expiring in the next 12–36 months — a signal for motivated sellers.
 
+## Live URLs
+- **App:** https://nycabatementtracker.vercel.app
+- **Supabase:** https://supabase.com/dashboard/project/jybjxojgowpueqlryuxp
+- **GitHub:** https://github.com/lakejoganm8-code/nyc-abatement-tracker
+
 ## Stack
 | Layer | Choice |
 |---|---|
@@ -30,7 +35,7 @@ src/
     ScoreBadge.tsx
     ExportButton.tsx
 scripts/pipeline.ts             # Run by GH Actions
-supabase/migrations/001_initial_schema.sql
+supabase/migrations/20260404000000_initial_schema.sql
 .github/workflows/refresh-data.yml
 ```
 
@@ -69,25 +74,24 @@ Query per-property at report time (not bulk-cached). Join: Legals (BBL→docID) 
 
 ## Environment Variables
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=   # pipeline + server API routes only
-NYC_OPEN_DATA_APP_TOKEN=     # optional, raises Socrata rate limits
+NEXT_PUBLIC_SUPABASE_URL=https://jybjxojgowpueqlryuxp.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=   # in .env.local
+SUPABASE_SERVICE_ROLE_KEY=       # pipeline + server API routes only
+NYC_OPEN_DATA_APP_TOKEN=         # optional, raises Socrata rate limits
 ```
-NYC Open Data token: free at data.cityofnewyork.us/profile/edit/developer_settings
 
 ## GitHub Actions Pipeline
 - Schedule: `0 3 * * 1` (Monday 3am UTC)
-- Manual: `workflow_dispatch`
-- Secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NYC_OPEN_DATA_APP_TOKEN`
+- Manual: `workflow_dispatch` in GitHub UI
+- Secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NYC_OPEN_DATA_APP_TOKEN`
 - Steps: fetch exemptions → compute expiration → fetch HPD → score → upsert Supabase → log run
-- On failure: open GitHub issue
+- On failure: opens GitHub issue with run link
 
 ## Dev Commands
 ```bash
 pnpm dev                       # local Next.js dev server
 pnpm build                     # production build
-npx tsx scripts/pipeline.ts    # run data pipeline locally
+pnpm pipeline                  # run data pipeline locally (needs .env.local)
 vercel --prod                  # deploy
 ```
 
@@ -99,15 +103,21 @@ vercel --prod                  # deploy
 
 ## Implementation Progress
 - [x] Step 1: GitHub repo created + Next.js scaffolded
-- [ ] Step 2: Supabase project + migration
-- [ ] Step 3: shadcn/ui + Supabase client installed
-- [ ] Step 4: socrata.ts + config.ts + expiration.ts
-- [ ] Step 5: scripts/pipeline.ts (exemptions → Supabase)
-- [ ] Step 6: hpd.ts wired into pipeline
-- [ ] Step 7: scoring.ts
-- [ ] Step 8: Dashboard page + PropertyTable + FilterBar
-- [ ] Step 9: acris.ts + /api/properties/[bbl] route
-- [ ] Step 10: Property detail page
-- [ ] Step 11: CSV export
-- [ ] Step 12: GitHub Actions workflow
-- [ ] Step 13: Vercel deploy + env vars
+- [x] Step 2: Supabase project + migration applied
+- [x] Step 3: shadcn/ui + Supabase client installed
+- [x] Step 4: socrata.ts + config.ts + expiration.ts
+- [x] Step 5: scripts/pipeline.ts (exemptions → Supabase)
+- [x] Step 6: hpd.ts wired into pipeline
+- [x] Step 7: scoring.ts
+- [x] Step 8: Dashboard page + PropertyTable + FilterBar
+- [x] Step 9: acris.ts + /api/properties/[bbl] route
+- [x] Step 10: Property detail page
+- [x] Step 11: CSV export (ExportButton.tsx)
+- [x] Step 12: GitHub Actions workflow
+- [x] Step 13: Vercel deploy + env vars set
+
+## Next Steps
+- Run `pnpm pipeline` locally to populate Supabase with real data
+- Register NYC Open Data token and add as `NYC_OPEN_DATA_APP_TOKEN` secret
+- Add `pluto.ts` module for zoning/FAR/year-built enrichment
+- Consider adding PLUTO to the weekly pipeline run
