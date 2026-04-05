@@ -34,6 +34,8 @@ export interface PropertyRow {
   violation_count_12mo: number
   distress_score: number
   edge_case_flags: string[]
+  latitude: number | null
+  longitude: number | null
 }
 
 const col = createColumnHelper<PropertyRow>()

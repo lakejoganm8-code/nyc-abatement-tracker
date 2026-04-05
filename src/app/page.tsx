@@ -1,8 +1,7 @@
 import { Suspense } from "react"
 import { createClient } from "@/lib/supabase/server"
-import { PropertyTable } from "@/components/PropertyTable"
+import { DashboardView } from "@/components/DashboardView"
 import { FilterBar } from "@/components/FilterBar"
-import { ExportButton } from "@/components/ExportButton"
 import type { PropertyRow } from "@/components/PropertyTable"
 
 interface PageProps {
@@ -43,19 +42,11 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
     )
   }
 
-  const properties = (data ?? []) as PropertyRow[]
-
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {properties.length} properties
-          {properties.length === 500 ? " (showing top 500)" : ""}
-        </p>
-        <ExportButton searchParams={searchParams} />
-      </div>
-      <PropertyTable data={properties} />
-    </div>
+    <DashboardView
+      data={(data ?? []) as PropertyRow[]}
+      searchParams={searchParams}
+    />
   )
 }
 
@@ -80,7 +71,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <Suspense
         fallback={
           <div className="text-sm text-muted-foreground py-12 text-center">
-            Loading properties...
+            Loading properties…
           </div>
         }
       >
