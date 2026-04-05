@@ -1,65 +1,91 @@
-import Image from "next/image";
+import { Suspense } from "react"
+import { createClient } from "@/lib/supabase/server"
+import { PropertyTable } from "@/components/PropertyTable"
+import { FilterBar } from "@/components/FilterBar"
+import { ExportButton } from "@/components/ExportButton"
+import type { PropertyRow } from "@/components/PropertyTable"
 
-export default function Home() {
+interface PageProps {
+  searchParams: Promise<Record<string, string>>
+}
+
+async function PropertiesList({ searchParams }: { searchParams: Record<string, string> }) {
+  const supabase = await createClient()
+
+  const borough = searchParams.borough
+  const maxMonths = parseInt(searchParams.maxMonths ?? "36")
+  const minScore = parseFloat(searchParams.minScore ?? "0")
+  const minUnits = parseInt(searchParams.minUnits ?? "0") || 0
+  const maxYear = Math.ceil(new Date().getFullYear() + maxMonths / 12)
+
+  let query = supabase
+    .from("property_pipeline")
+    .select("*")
+    .gte("distress_score", minScore)
+    .lte("expiration_year", maxYear)
+    .order("distress_score", { ascending: false })
+    .limit(500)
+
+  if (borough && borough !== "all") {
+    query = query.eq("borough", borough)
+  }
+  if (minUnits > 0) {
+    query = query.gte("total_units", minUnits)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    return (
+      <div className="text-destructive text-sm py-8">
+        Error loading properties: {error.message}
+      </div>
+    )
+  }
+
+  const properties = (data ?? []) as PropertyRow[]
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {properties.length} properties
+          {properties.length === 500 ? " (showing top 500)" : ""}
+        </p>
+        <ExportButton searchParams={searchParams} />
+      </div>
+      <PropertyTable data={properties} />
     </div>
-  );
+  )
+}
+
+export default async function DashboardPage({ searchParams }: PageProps) {
+  const params = await searchParams
+
+  return (
+    <main className="max-w-[1400px] mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          NYC Abatement Expiration Tracker
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Properties where 421-a or J-51 tax abatements are expiring — acquisition pipeline intelligence.
+        </p>
+      </div>
+
+      <Suspense>
+        <FilterBar />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <div className="text-sm text-muted-foreground py-12 text-center">
+            Loading properties...
+          </div>
+        }
+      >
+        <PropertiesList searchParams={params} />
+      </Suspense>
+    </main>
+  )
 }
