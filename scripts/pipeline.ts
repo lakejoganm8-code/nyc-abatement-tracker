@@ -2,19 +2,19 @@
 /**
  * NYC Abatement Tracker — Data Pipeline
  *
- * Run locally:   npx tsx scripts/pipeline.ts
+ * Run locally:   pnpm pipeline
  * Run in CI:     same command, with env vars injected as GitHub secrets
  *
  * Steps:
  *   1. Fetch 421-a + J-51 exemptions from NYC Open Data
  *   2. Compute expiration dates + classify status
  *   3. Filter to target window (approaching/in-phase-out)
- *   4. Upsert exemptions table in Supabase
- *   5. Fetch HPD data for all target BBLs
- *   6. Upsert hpd_data table
- *   7. Compute distress scores
- *   8. Upsert property_scores table
- *   9. Log run to pipeline_runs
+ *   4. Upsert exemptions table
+ *   5. Fetch HPD data (unit counts + violations)
+ *   6. Fetch PLUTO data (lat/lng, zoning, year built)
+ *   7. Upsert hpd_data + pluto_data
+ *   8. Compute distress scores + upsert property_scores
+ *   9. Log runs to pipeline_runs
  */
 
 import "dotenv/config"
@@ -22,10 +22,9 @@ import { createClient } from "@supabase/supabase-js"
 import { fetchExemptions } from "@/lib/nyc/exemptions"
 import { processExemptions } from "@/lib/analysis/expiration"
 import { getHPDData } from "@/lib/nyc/hpd"
+import { fetchPLUTOData } from "@/lib/nyc/pluto"
 import { scoreAll } from "@/lib/analysis/scoring"
-import type { ExemptionRecord, HPDData, PipelineRun } from "@/types"
-
-// ─── Supabase service client ──────────────────────────────────────────────────
+import type { ExemptionRecord, HPDData, PLUTOData, PipelineRun } from "@/types"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -81,9 +80,28 @@ async function upsertHPD(hpdMap: Map<string, HPDData>): Promise<number> {
   return count ?? rows.length
 }
 
-async function upsertScores(
-  scores: ReturnType<typeof scoreAll>
-): Promise<number> {
+async function upsertPLUTO(plutoMap: Map<string, PLUTOData & { latitude: number | null; longitude: number | null }>): Promise<number> {
+  const rows = Array.from(plutoMap.values()).map((p) => ({
+    bbl: p.bbl,
+    zoning: p.zoning,
+    far: p.far,
+    lot_area: p.lotArea,
+    year_built: p.yearBuilt,
+    neighborhood: p.neighborhood,
+    latitude: (p as PLUTOData & { latitude: number | null }).latitude,
+    longitude: (p as PLUTOData & { longitude: number | null }).longitude,
+    fetched_at: p.fetchedAt,
+  }))
+
+  const { error, count } = await supabase
+    .from("pluto_data")
+    .upsert(rows, { onConflict: "bbl", count: "exact" })
+
+  if (error) throw new Error(`[pluto upsert] ${error.message}`)
+  return count ?? rows.length
+}
+
+async function upsertScores(scores: ReturnType<typeof scoreAll>): Promise<number> {
   const rows = scores.map((s) => ({
     bbl: s.bbl,
     distress_score: s.distressScore,
@@ -114,13 +132,13 @@ async function logRun(run: PipelineRun): Promise<void> {
   if (error) console.warn(`[pipeline_runs] Failed to log run: ${error.message}`)
 }
 
-// ─── Main pipeline ────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log("[pipeline] Starting NYC Abatement Tracker data pipeline...")
   const pipelineStart = Date.now()
 
-  // ── Step 1: Fetch exemptions ──────────────────────────────────────────────
+  // Step 1: Fetch exemptions
   let rawRows: Awaited<ReturnType<typeof fetchExemptions>>
   try {
     rawRows = await fetchExemptions()
@@ -129,51 +147,52 @@ async function main() {
     throw err
   }
 
-  // ── Step 2: Process + compute expiration ─────────────────────────────────
+  // Step 2: Compute expiration
   console.log("[pipeline] Computing expiration dates...")
   const allProcessed = processExemptions(rawRows)
   console.log(`[pipeline] Processed ${allProcessed.length} unique BBLs`)
 
-  // Include both APPROACHING and IN_PHASE_OUT
   const targetRecords = allProcessed.filter(
     (r) => r.expirationStatus === "APPROACHING" || r.expirationStatus === "IN_PHASE_OUT"
   )
   console.log(`[pipeline] ${targetRecords.length} properties in target window`)
 
-  // Also store FUTURE records (for trending) but mark clearly
-  // For v1, only upsert target records to keep data lean
   const t2 = Date.now()
   const exemptCount = await upsertExemptions(targetRecords)
   await logRun({ dataset: "exemptions", rowsUpserted: exemptCount, durationMs: Date.now() - t2, status: "success" })
   console.log(`[pipeline] Upserted ${exemptCount} exemption records`)
 
-  // ── Step 3: HPD data ──────────────────────────────────────────────────────
   const bbls = targetRecords.map((r) => r.bbl)
-  console.log(`[pipeline] Fetching HPD data for ${bbls.length} BBLs...`)
-  const t3 = Date.now()
-  const hpdMap = await getHPDData(bbls)
-  const hpdCount = await upsertHPD(hpdMap)
-  await logRun({ dataset: "hpd", rowsUpserted: hpdCount, durationMs: Date.now() - t3, status: "success" })
-  console.log(`[pipeline] Upserted ${hpdCount} HPD records`)
 
-  // ── Step 4: Scores ────────────────────────────────────────────────────────
+  // Step 3: HPD + PLUTO in parallel
+  console.log(`[pipeline] Fetching HPD + PLUTO for ${bbls.length} BBLs...`)
+  const t3 = Date.now()
+  const [hpdMap, plutoMap] = await Promise.all([
+    getHPDData(bbls),
+    fetchPLUTOData(bbls),
+  ])
+  const [hpdCount, plutoCount] = await Promise.all([
+    upsertHPD(hpdMap),
+    upsertPLUTO(plutoMap as Map<string, PLUTOData & { latitude: number | null; longitude: number | null }>),
+  ])
+  await logRun({ dataset: "hpd+pluto", rowsUpserted: hpdCount + plutoCount, durationMs: Date.now() - t3, status: "success" })
+  console.log(`[pipeline] Upserted ${hpdCount} HPD + ${plutoCount} PLUTO records`)
+
+  // Step 4: Scores
   console.log("[pipeline] Computing distress scores...")
   const t4 = Date.now()
-  // ACRIS not available at pipeline time (fetched per-property on demand)
   const scores = scoreAll(targetRecords, hpdMap, new Map())
   const scoreCount = await upsertScores(scores)
   await logRun({ dataset: "scores", rowsUpserted: scoreCount, durationMs: Date.now() - t4, status: "success" })
   console.log(`[pipeline] Upserted ${scoreCount} score records`)
 
-  // Top 5 preview
   console.log("\n[pipeline] Top 5 by distress score:")
   scores.slice(0, 5).forEach((s, i) => {
     const e = targetRecords.find((r) => r.bbl === s.bbl)
     console.log(`  ${i + 1}. ${e?.address ?? s.bbl} — score: ${s.distressScore}`)
   })
 
-  const totalMs = Date.now() - pipelineStart
-  console.log(`\n[pipeline] Done in ${(totalMs / 1000).toFixed(1)}s`)
+  console.log(`\n[pipeline] Done in ${((Date.now() - pipelineStart) / 1000).toFixed(1)}s`)
 }
 
 main().catch((err) => {

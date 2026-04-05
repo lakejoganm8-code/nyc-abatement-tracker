@@ -95,6 +95,8 @@ export interface HPDData {
 
 export interface PLUTOData {
   bbl: string
+  latitude: number | null
+  longitude: number | null
   zoning: string | null
   far: number | null
   lotArea: number | null
@@ -149,6 +151,8 @@ export interface PropertyRecord {
   violationCount12mo: number
   registrationStatus: string | null
   // from pluto
+  latitude: number | null
+  longitude: number | null
   zoning: string | null
   far: number | null
   yearBuilt: number | null
