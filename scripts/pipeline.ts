@@ -28,7 +28,7 @@ import { fetchExemptions } from "@/lib/nyc/exemptions"
 import { processExemptions } from "@/lib/analysis/expiration"
 import { getHPDData } from "@/lib/nyc/hpd"
 import { fetchPLUTOData } from "@/lib/nyc/pluto"
-import { fetchACRISBulk } from "@/lib/nyc/acris-bulk"
+import { fetchACRISBatch, fetchACRISBulk, ACRIS_SUPER_WAVE } from "@/lib/nyc/acris-bulk"
 // HCR dataset (8y9c-t29b) no longer available on NYC Open Data — skipped
 import { fetchEvictionCounts } from "@/lib/nyc/evictions"
 import { scoreAll } from "@/lib/analysis/scoring"
@@ -317,12 +317,20 @@ async function main() {
     .filter((r) => r.expirationYear != null && r.expirationYear <= currentYear + 2)
     .map((r) => r.bbl)
   const bblsNeedingACRIS = acrisPriorityBBLs.slice(0, ACRIS_MAX_BBLS)
-  console.log(`[pipeline] Fetching ACRIS bulk for ${bblsNeedingACRIS.length} BBLs (priority: expiring ≤ ${currentYear + 2})...`)
+  console.log(`[pipeline] Fetching ACRIS bulk for ${bblsNeedingACRIS.length} BBLs in batches of ${ACRIS_SUPER_WAVE}...`)
   const t35 = Date.now()
-  const acrisMap = await fetchACRISBulk(bblsNeedingACRIS)
-  const acrisCount = await upsertACRIS(acrisMap)
-  await logRun({ dataset: "acris", rowsUpserted: acrisCount, durationMs: Date.now() - t35, status: "success" })
-  console.log(`[pipeline] Upserted ${acrisCount} ACRIS records (${acrisMap.size} BBLs matched)`)
+  const acrisMap = new Map<string, import("@/types").ACRISRecord>()
+  let acrisTotal = 0
+  for (let i = 0; i < bblsNeedingACRIS.length; i += ACRIS_SUPER_WAVE) {
+    const batch = bblsNeedingACRIS.slice(i, i + ACRIS_SUPER_WAVE)
+    const batchMap = await fetchACRISBatch(batch)
+    const batchCount = await upsertACRIS(batchMap)
+    acrisTotal += batchCount
+    for (const [bbl, rec] of batchMap) acrisMap.set(bbl, rec)
+    console.log(`[pipeline] ACRIS batch ${Math.floor(i / ACRIS_SUPER_WAVE) + 1}/${Math.ceil(bblsNeedingACRIS.length / ACRIS_SUPER_WAVE)}: ${batchMap.size} matched, ${batchCount} upserted (${Date.now() - t35}ms total)`)
+  }
+  await logRun({ dataset: "acris", rowsUpserted: acrisTotal, durationMs: Date.now() - t35, status: "success" })
+  console.log(`[pipeline] ACRIS complete: ${acrisTotal} total records upserted`)
 
   // Step 3.6: Stabilization classification (no HCR registry — classify by exemption type)
   const t36s = Date.now()
