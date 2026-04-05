@@ -309,10 +309,17 @@ async function main() {
   ])
   console.log(`[pipeline] HPD: ${hpdMap.size} records, PLUTO: ${plutoMap.size} records`)
 
-  // Step 3.5: ACRIS bulk (deed/mortgage for target window)
-  console.log(`[pipeline] Fetching ACRIS bulk for ${bbls.length} BBLs...`)
+  // Step 3.5: ACRIS bulk — prioritize properties expiring soonest (next 24 months)
+  // ACRIS data changes rarely; cap at 5000 BBLs per run to stay within time budget
+  const ACRIS_MAX_BBLS = 5000
+  const currentYear = new Date().getFullYear()
+  const acrisPriorityBBLs = targetRecords
+    .filter((r) => r.expirationYear != null && r.expirationYear <= currentYear + 2)
+    .map((r) => r.bbl)
+  const bblsNeedingACRIS = acrisPriorityBBLs.slice(0, ACRIS_MAX_BBLS)
+  console.log(`[pipeline] Fetching ACRIS bulk for ${bblsNeedingACRIS.length} BBLs (priority: expiring ≤ ${currentYear + 2})...`)
   const t35 = Date.now()
-  const acrisMap = await fetchACRISBulk(bbls)
+  const acrisMap = await fetchACRISBulk(bblsNeedingACRIS)
   const acrisCount = await upsertACRIS(acrisMap)
   await logRun({ dataset: "acris", rowsUpserted: acrisCount, durationMs: Date.now() - t35, status: "success" })
   console.log(`[pipeline] Upserted ${acrisCount} ACRIS records (${acrisMap.size} BBLs matched)`)

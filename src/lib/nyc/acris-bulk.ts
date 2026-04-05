@@ -17,10 +17,10 @@ import { DATASETS, ACRIS_DEED_TYPES, ACRIS_MORTGAGE_TYPES } from "@/lib/analysis
 import { buildACRISOrClause, parseBBLParts, rowToBBL } from "./bbl-utils"
 import type { ACRISRecord } from "@/types"
 
-const LEGALS_CHUNK = 150   // BBLs per Legals OR-clause request
+const LEGALS_CHUNK = 50    // BBLs per Legals OR-clause request (POST avoids URL limits)
 const MASTER_CHUNK = 200   // doc_ids per Master IN clause
 const PARTIES_CHUNK = 200  // doc_ids per Parties IN clause
-const CONCURRENCY = 3      // parallel Legals requests per wave
+const CONCURRENCY = 5      // parallel Legals requests per wave
 
 interface RawLegal {
   document_id: string
@@ -65,10 +65,9 @@ export async function fetchACRISBulk(bbls: string[]): Promise<Map<string, ACRISR
     const waveResults = await Promise.all(
       chunks.map(async (chunk) => {
         const whereClause = buildACRISOrClause(chunk)
-        return client.fetchAll<RawLegal>(DATASETS.ACRIS_LEGALS, {
+        return client.fetchAllPost<RawLegal>(DATASETS.ACRIS_LEGALS, {
           $where: `(${whereClause}) AND doc_type IN (${docTypeList})`,
           $select: "document_id,doc_type,borough,block,lot",
-          $limit: 50000,
         })
       })
     )
@@ -94,11 +93,10 @@ export async function fetchACRISBulk(bbls: string[]): Promise<Map<string, ACRISR
   for (let i = 0; i < allDocIds.length; i += MASTER_CHUNK) {
     const chunk = allDocIds.slice(i, i + MASTER_CHUNK)
     const inClause = chunk.map((id) => `'${id}'`).join(",")
-    const rows = await client.fetchAll<RawMaster>(DATASETS.ACRIS_MASTER, {
+    const rows = await client.fetchAllPost<RawMaster>(DATASETS.ACRIS_MASTER, {
       $where: `document_id IN (${inClause})`,
       $select: "document_id,doc_type,doc_amount,recorded_datetime",
       $order: "recorded_datetime DESC",
-      $limit: 50000,
     })
     for (const row of rows) {
       // Keep only the first (most recent) record per doc_id
@@ -130,10 +128,9 @@ export async function fetchACRISBulk(bbls: string[]): Promise<Map<string, ACRISR
   for (let i = 0; i < uniquePartyDocIds.length; i += PARTIES_CHUNK) {
     const chunk = uniquePartyDocIds.slice(i, i + PARTIES_CHUNK)
     const inClause = chunk.map((id) => `'${id}'`).join(",")
-    const rows = await client.fetchAll<RawParty>(DATASETS.ACRIS_PARTIES, {
+    const rows = await client.fetchAllPost<RawParty>(DATASETS.ACRIS_PARTIES, {
       $where: `document_id IN (${inClause}) AND party_type IN ('1','2')`,
       $select: "document_id,party_type,name",
-      $limit: 50000,
     })
     for (const row of rows) {
       if (!partiesByDocId.has(row.document_id)) partiesByDocId.set(row.document_id, [])
