@@ -3,11 +3,31 @@ import { DATASETS } from "@/lib/analysis/config"
 import { buildBBLOrClause, rowToBBL } from "./bbl-utils"
 import type { HPDData } from "@/types"
 
-const CHUNK_SIZE = 100  // OR-condition queries are longer; use smaller chunks
+const CHUNK_SIZE = 100   // OR-condition queries are longer; use smaller chunks
+const CONCURRENCY = 5    // parallel requests per wave
+
+async function runChunked<T>(
+  items: string[],
+  chunkSize: number,
+  concurrency: number,
+  fn: (chunk: string[]) => Promise<T[]>
+): Promise<T[]> {
+  const chunks: string[][] = []
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize))
+  }
+
+  const results: T[] = []
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    const wave = chunks.slice(i, i + concurrency)
+    const waveResults = await Promise.all(wave.map(fn))
+    for (const r of waveResults) results.push(...r)
+  }
+  return results
+}
 
 /**
  * Fetch HPD registration data for a list of BBLs.
- * Returns registration status per BBL.
  */
 export async function fetchHPDRegistrations(
   bbls: string[]
@@ -15,28 +35,26 @@ export async function fetchHPDRegistrations(
   const client = getSocrataClient()
   const result = new Map<string, Partial<HPDData>>()
 
-  for (let i = 0; i < bbls.length; i += CHUNK_SIZE) {
-    const chunk = bbls.slice(i, i + CHUNK_SIZE)
+  const rows = await runChunked(bbls, CHUNK_SIZE, CONCURRENCY, (chunk) => {
     const where = buildBBLOrClause(chunk)
-
-    const rows = await client.fetchAll(DATASETS.HPD_REGISTRATION, {
+    return client.fetchAll(DATASETS.HPD_REGISTRATION, {
       $where: where,
       $select: "boroid,block,lot,registrationid,lastregistrationdate,registrationenddate",
-    })
+    }) as Promise<Record<string, string>[]>
+  })
 
-    for (const row of rows as Record<string, string>[]) {
-      const bbl = rowToBBL(row)
-      if (!result.has(bbl)) {
-        const endDate = row.registrationenddate
-        const isActive = !endDate || new Date(endDate) > new Date()
-        result.set(bbl, {
-          bbl,
-          totalUnits: null,
-          buildingClass: null,
-          registrationStatus: isActive ? "registered" : "lapsed",
-          registrationId: row.registrationid ?? null,
-        })
-      }
+  for (const row of rows) {
+    const bbl = rowToBBL(row)
+    if (!result.has(bbl)) {
+      const endDate = row.registrationenddate
+      const isActive = !endDate || new Date(endDate) > new Date()
+      result.set(bbl, {
+        bbl,
+        totalUnits: null,
+        buildingClass: null,
+        registrationStatus: isActive ? "registered" : "lapsed",
+        registrationId: row.registrationid ?? null,
+      })
     }
   }
 
@@ -45,7 +63,6 @@ export async function fetchHPDRegistrations(
 
 /**
  * Fetch violation counts (last 12 months) for a list of BBLs.
- * Returns a map of BBL → violation count.
  */
 export async function fetchHPDViolations(bbls: string[]): Promise<Map<string, number>> {
   const client = getSocrataClient()
@@ -55,19 +72,17 @@ export async function fetchHPDViolations(bbls: string[]): Promise<Map<string, nu
   cutoff.setFullYear(cutoff.getFullYear() - 1)
   const cutoffStr = cutoff.toISOString().split("T")[0]
 
-  for (let i = 0; i < bbls.length; i += CHUNK_SIZE) {
-    const chunk = bbls.slice(i, i + CHUNK_SIZE)
+  const rows = await runChunked(bbls, CHUNK_SIZE, CONCURRENCY, (chunk) => {
     const bblClause = buildBBLOrClause(chunk)
-
-    const rows = await client.fetchAll(DATASETS.HPD_VIOLATIONS, {
+    return client.fetchAll(DATASETS.HPD_VIOLATIONS, {
       $where: `(${bblClause}) AND novissueddate >= '${cutoffStr}'`,
       $select: "boroid,block,lot,violationid",
-    })
+    }) as Promise<Record<string, string>[]>
+  })
 
-    for (const row of rows as Record<string, string>[]) {
-      const bbl = rowToBBL(row)
-      result.set(bbl, (result.get(bbl) ?? 0) + 1)
-    }
+  for (const row of rows) {
+    const bbl = rowToBBL(row)
+    result.set(bbl, (result.get(bbl) ?? 0) + 1)
   }
 
   return result

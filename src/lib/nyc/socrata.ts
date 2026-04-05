@@ -74,20 +74,35 @@ export class SocrataClient {
   }
 
   /**
-   * Fetch with exponential backoff on 429 (rate limit) responses.
+   * Fetch with exponential backoff on 429 (rate limit) and network errors (ECONNRESET, etc).
    */
-  private async fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
-    let delay = 1000
+  private async fetchWithRetry(url: string, maxRetries = 5): Promise<Response> {
+    let delay = 2000
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const res = await fetch(url, { headers: this.headers() })
+      let res: Response
+      try {
+        res = await fetch(url, {
+          headers: this.headers(),
+          signal: AbortSignal.timeout(60_000), // 60s timeout per request
+        })
+      } catch (err) {
+        // Network error (ECONNRESET, timeout, etc.) — retry with backoff
+        if (attempt < maxRetries) {
+          console.warn(`[socrata] Network error (attempt ${attempt + 1}/${maxRetries + 1}): ${(err as Error).message}. Retrying in ${delay}ms...`)
+          await sleep(delay)
+          delay = Math.min(delay * 2, 30_000)
+          continue
+        }
+        throw err
+      }
 
       if (res.ok) return res
 
-      if (res.status === 429 && attempt < maxRetries) {
-        console.warn(`[socrata] Rate limited. Retrying in ${delay}ms...`)
+      if ((res.status === 429 || res.status >= 500) && attempt < maxRetries) {
+        console.warn(`[socrata] HTTP ${res.status} (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in ${delay}ms...`)
         await sleep(delay)
-        delay *= 2
+        delay = Math.min(delay * 2, 30_000)
         continue
       }
 
