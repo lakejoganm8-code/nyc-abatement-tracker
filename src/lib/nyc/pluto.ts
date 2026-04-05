@@ -63,7 +63,11 @@ function normalizeBBLForPLUTO(bbl: string): string {
   return bbl.replace(/\D/g, "").padStart(10, "0")
 }
 
-// Ensure BBL is always 10-digit padded
-function padBBL(bbl: string): string {
-  return bbl.replace(/\D/g, "").padStart(10, "0")
+// Ensure BBL is always 10-digit padded.
+// Socrata returns PLUTO BBL as a float-string like "1016620001.00000000" or
+// an 18-char integer-string "101662000100000000". In both cases the first 10
+// digits (after stripping non-numeric chars) are the correct BBL.
+function padBBL(rawBbl: string): string {
+  const digits = rawBbl.replace(/\D/g, "")
+  return digits.length > 10 ? digits.slice(0, 10) : digits.padStart(10, "0")
 }
