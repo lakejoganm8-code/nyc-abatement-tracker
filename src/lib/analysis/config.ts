@@ -33,129 +33,61 @@ export const BOROUGH_NAMES: Record<string, string> = {
   staten_island: "Staten Island",
 }
 
-// ─── 421-a exemption codes → benefit types ───────────────────────────────────
+// ─── 421-a and J-51 exemption codes (muvi-b6kx actual numeric codes) ─────────
 //
-// Sources:
-//   - NYC DOF Property Exemption Detail codebook
-//   - NYC Admin Code § 11-245 (421-a program versions)
-//   - DOF 421-a benefit type schedule documentation
+// Verified against live NYC Open Data (muvi-b6kx) on 2026-04-04.
+// The dataset uses 4-digit numeric exmp_codes, not the alpha codes in older docs.
 //
-// Key durations by program version:
-//   421-a(1)–(8)  : geography-based, 10–25yr depending on location/date
-//   421-a(15)     : "Enhanced Affordability" — 25yr
-//   421-a(16)     : "Affordable New York" (post-2017) — 35yr
+// Duration is read directly from the `no_years` field in each row, so we only
+// need the codes to filter rows and assign labels + exemption type.
 //
-// Phase-out: typically 4 years at 20% per year.
-// If the exact type cannot be determined, UNKNOWN_CODE is flagged.
+// Phase-out: 4 years for all types (universal NYC abatement phase-out schedule).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const BENEFIT_TYPES: Record<string, BenefitType> = {
-  // ── 421-a standard (pre-2008, geography A — outer boroughs/upper Manhattan) ──
-  "4210A": {
-    code: "4210A",
-    label: "421-a(1) 10yr (Area A)",
-    exemptionType: "421a",
-    durationYears: 10,
-    phaseOutYears: 2,
-    phaseOutReductionPerYear: 0.5,
-  },
-  // ── 421-a standard (pre-2008, geography B — mid-range Manhattan) ──
-  "4210B": {
-    code: "4210B",
-    label: "421-a(1) 15yr (Area B)",
-    exemptionType: "421a",
-    durationYears: 15,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  // ── 421-a standard (pre-2008, geography C — core Manhattan/high-value) ──
-  "4210C": {
-    code: "4210C",
-    label: "421-a(1) 20yr (Area C)",
-    exemptionType: "421a",
-    durationYears: 20,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  // ── 421-a with affordable units (pre-2008, 25yr) ──
-  "4210D": {
-    code: "4210D",
-    label: "421-a 25yr (Affordable)",
-    exemptionType: "421a",
-    durationYears: 25,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  // ── 421-a(15) Enhanced Affordability (2015–2017 gap period, 25yr) ──
-  "42115": {
-    code: "42115",
-    label: "421-a(15) Enhanced Affordability 25yr",
-    exemptionType: "421a",
-    durationYears: 25,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  // ── 421-a(16) Affordable New York (post-June 2017, 35yr) ──
-  "42116": {
-    code: "42116",
-    label: "421-a(16) Affordable New York 35yr",
-    exemptionType: "421a",
-    durationYears: 35,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  // ── Generic codes seen in muvi-b6kx (map to most common duration) ──
-  "4212":  {
-    code: "4212",
-    label: "421-a (generic, estimated 20yr)",
-    exemptionType: "421a",
-    durationYears: 20,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  "4213":  {
-    code: "4213",
-    label: "421-a extended 25yr",
-    exemptionType: "421a",
-    durationYears: 25,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  // ── J-51 standard (14yr = 10 full + 4 phase-out) ──
-  "J51S": {
-    code: "J51S",
-    label: "J-51 Standard 14yr",
-    exemptionType: "j51",
-    durationYears: 14,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
-  // ── J-51 affordable (34yr = 30 full + 4 phase-out) ──
-  "J51A": {
-    code: "J51A",
-    label: "J-51 Affordable 34yr",
-    exemptionType: "j51",
-    durationYears: 34,
-    phaseOutYears: 4,
-    phaseOutReductionPerYear: 0.25,
-  },
+// Label and type metadata keyed by numeric exmp_code
+export const BENEFIT_TYPE_META: Record<string, { label: string; exemptionType: "421a" | "j51" }> = {
+  "5100": { label: "421-a",                            exemptionType: "421a" },
+  "5101": { label: "421-a (condo)",                    exemptionType: "421a" },
+  "5110": { label: "421-a (10yr)",                     exemptionType: "421a" },
+  "5112": { label: "421-a (12yr)",                     exemptionType: "421a" },
+  "5113": { label: "421-a (15yr)",                     exemptionType: "421a" },
+  "5114": { label: "421-a (20yr)",                     exemptionType: "421a" },
+  "5116": { label: "421-a (affordable)",               exemptionType: "421a" },
+  "5117": { label: "421-a (affordable, extended)",     exemptionType: "421a" },
+  "5118": { label: "421-a (25yr affordable)",          exemptionType: "421a" },
+  "5121": { label: "421-a(16) Affordable New York",    exemptionType: "421a" },
+  "5122": { label: "421-a(16) Affordable NY (condo)",  exemptionType: "421a" },
+  "5129": { label: "J-51 (rehabilitation)",            exemptionType: "j51"  },
+  "5130": { label: "J-51 (conversion)",                exemptionType: "j51"  },
 }
 
-// Exemption codes in muvi-b6kx that indicate 421-a
+// BenefitType objects are built at runtime from row data — duration comes from no_years
+// This stub keeps TypeScript happy in callers that expect BenefitType
+export const BENEFIT_TYPES: Record<string, BenefitType> = Object.fromEntries(
+  Object.entries(BENEFIT_TYPE_META).map(([code, meta]) => [
+    code,
+    {
+      code,
+      label: meta.label,
+      exemptionType: meta.exemptionType,
+      durationYears: 0, // overridden by row's no_years at parse time
+      phaseOutYears: 4,
+      phaseOutReductionPerYear: 0.25,
+    } satisfies BenefitType,
+  ])
+)
+
+// Exemption codes that indicate 421-a
 export const EXEMPTION_CODES_421A = new Set([
-  "4210A", "4210B", "4210C", "4210D", "42115", "42116", "4212", "4213",
-  // Numeric variants seen in practice
-  "4210", "4211", "4214", "4215", "4216",
+  "5100", "5101", "5110", "5112", "5113", "5114", "5116", "5117", "5118", "5121", "5122",
 ])
 
 // Exemption codes that indicate J-51
 export const EXEMPTION_CODES_J51 = new Set([
-  "J51S", "J51A", "J51", "J510", "J511", "J512",
-  // Numeric codes
-  "5100", "5101", "5102",
+  "5129", "5130",
 ])
 
-// All target exemption codes (used as filter when querying Socrata)
+// All target codes — used as the Socrata $where filter
 export const ALL_TARGET_CODES = [
   ...EXEMPTION_CODES_421A,
   ...EXEMPTION_CODES_J51,

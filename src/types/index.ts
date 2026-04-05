@@ -22,20 +22,18 @@ export interface BenefitType {
 }
 
 // ─── Raw exemption row from Socrata muvi-b6kx ─────────────────────────────────
+// Actual schema (verified 2026-04-04 against live dataset)
 
 export interface RawExemption {
-  bble: string          // BBL with leading zeros
-  taxyear: string
-  exmptcode: string
-  exmptamt: string      // annual exempt amount ($)
-  gross: string         // assessed value
-  bldgclass: string
-  // address fields may vary
-  stname?: string
-  housenum_lo?: string
-  housenum_hi?: string
-  boro?: string
-  zip?: string
+  parid: string       // 10-digit BBL (boro1 + block5 + lot4)
+  boro: string        // "1"–"5"
+  year: string        // tax year (e.g. "2025")
+  exmp_code: string   // numeric exemption code ("5113", "5130", etc.)
+  benftstart: string  // benefit start year — may have leading "+" (e.g. "+2009" or "2010")
+  no_years: string    // total program duration in years ("15", "20", etc.)
+  curexmptot: string  // current annual exempt amount in dollars
+  basetot: string     // assessed base value — has leading "+" and zero-padding
+  bldg_class: string  // building class code
 }
 
 // ─── Computed expiration window ───────────────────────────────────────────────
@@ -102,6 +100,8 @@ export interface PLUTOData {
   lotArea: number | null
   yearBuilt: number | null
   neighborhood: string | null
+  address: string | null
+  totalUnits: number | null
   fetchedAt: string
 }
 

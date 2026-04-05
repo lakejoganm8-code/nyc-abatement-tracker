@@ -2,11 +2,42 @@ import { getSocrataClient } from "./socrata"
 import { DATASETS } from "@/lib/analysis/config"
 import type { HPDData } from "@/types"
 
-const CHUNK_SIZE = 200  // max BBLs per IN clause to avoid URL length limits
+const CHUNK_SIZE = 100  // OR-condition queries are longer; use smaller chunks
 
 /**
- * Fetch HPD registration data (unit counts, building class, registration status)
- * for a list of BBLs. Returns a map of BBL → HPDData.
+ * Parse a 10-digit padded BBL into boro/block/lot parts (without leading zeros
+ * on block/lot, matching how HPD datasets store these fields).
+ */
+function parseBBLParts(bbl: string): { boro: string; block: string; lot: string } {
+  const clean = bbl.replace(/\D/g, "").padStart(10, "0")
+  return {
+    boro: clean[0],
+    block: String(parseInt(clean.slice(1, 6), 10)), // strip leading zeros
+    lot: String(parseInt(clean.slice(6, 10), 10)),  // strip leading zeros
+  }
+}
+
+/** Build an OR-clause for matching BBLs against HPD's separate boro/block/lot columns */
+function buildBBLOrClause(bbls: string[]): string {
+  return bbls
+    .map((b) => {
+      const { boro, block, lot } = parseBBLParts(b)
+      return `(boroid='${boro}' AND block='${block}' AND lot='${lot}')`
+    })
+    .join(" OR ")
+}
+
+/** Reconstruct 10-digit padded BBL from HPD row fields */
+function rowToBBL(row: Record<string, string>): string {
+  const boro = row.boroid ?? "0"
+  const block = (row.block ?? "0").padStart(5, "0")
+  const lot = (row.lot ?? "0").padStart(4, "0")
+  return `${boro}${block}${lot}`
+}
+
+/**
+ * Fetch HPD registration data for a list of BBLs.
+ * Returns registration status per BBL.
  */
 export async function fetchHPDRegistrations(
   bbls: string[]
@@ -16,21 +47,24 @@ export async function fetchHPDRegistrations(
 
   for (let i = 0; i < bbls.length; i += CHUNK_SIZE) {
     const chunk = bbls.slice(i, i + CHUNK_SIZE)
-    const bblList = chunk.map((b) => `'${formatBBLForHPD(b)}'`).join(",")
+    const where = buildBBLOrClause(chunk)
 
     const rows = await client.fetchAll(DATASETS.HPD_REGISTRATION, {
-      $where: `boroid||block||lot IN (${bblList})`,
-      $select: "boroid,block,lot,totalunits,bldgclass,registrationid,lastregistrationdate",
+      $where: where,
+      $select: "boroid,block,lot,registrationid,lastregistrationdate,registrationenddate",
     })
 
     for (const row of rows as Record<string, string>[]) {
-      const bbl = `${row.boroid}${row.block?.padStart(5, "0")}${row.lot?.padStart(4, "0")}`
+      const bbl = rowToBBL(row)
       if (!result.has(bbl)) {
+        // Active if registrationenddate is null or in the future
+        const endDate = row.registrationenddate
+        const isActive = !endDate || new Date(endDate) > new Date()
         result.set(bbl, {
           bbl,
-          totalUnits: parseInt(row.totalunits ?? "0") || null,
-          buildingClass: row.bldgclass ?? null,
-          registrationStatus: row.lastregistrationdate ? "registered" : "unregistered",
+          totalUnits: null,      // unit counts come from PLUTO
+          buildingClass: null,   // building class comes from exemptions / PLUTO
+          registrationStatus: isActive ? "registered" : "lapsed",
         })
       }
     }
@@ -47,22 +81,21 @@ export async function fetchHPDViolations(bbls: string[]): Promise<Map<string, nu
   const client = getSocrataClient()
   const result = new Map<string, number>()
 
-  // Calculate cutoff date 12 months ago
   const cutoff = new Date()
   cutoff.setFullYear(cutoff.getFullYear() - 1)
   const cutoffStr = cutoff.toISOString().split("T")[0]
 
   for (let i = 0; i < bbls.length; i += CHUNK_SIZE) {
     const chunk = bbls.slice(i, i + CHUNK_SIZE)
-    const bblList = chunk.map((b) => `'${formatBBLForHPD(b)}'`).join(",")
+    const bblClause = buildBBLOrClause(chunk)
 
     const rows = await client.fetchAll(DATASETS.HPD_VIOLATIONS, {
-      $where: `boroid||block||lot IN (${bblList}) AND inspectiondate >= '${cutoffStr}'`,
+      $where: `(${bblClause}) AND novissueddate >= '${cutoffStr}'`,
       $select: "boroid,block,lot,violationid",
     })
 
     for (const row of rows as Record<string, string>[]) {
-      const bbl = `${row.boroid}${row.block?.padStart(5, "0")}${row.lot?.padStart(4, "0")}`
+      const bbl = rowToBBL(row)
       result.set(bbl, (result.get(bbl) ?? 0) + 1)
     }
   }
@@ -81,9 +114,8 @@ export async function getHPDData(bbls: string[]): Promise<Map<string, HPDData>> 
   ])
 
   const result = new Map<string, HPDData>()
-  const allBBLs = new Set([...registrations.keys(), ...violations.keys(), ...bbls])
 
-  for (const bbl of allBBLs) {
+  for (const bbl of bbls) {
     const reg = registrations.get(bbl) ?? {}
     result.set(bbl, {
       bbl,
@@ -96,10 +128,4 @@ export async function getHPDData(bbls: string[]): Promise<Map<string, HPDData>> 
   }
 
   return result
-}
-
-/** HPD uses boroid+block+lot as a concatenated string in some fields */
-function formatBBLForHPD(bbl: string): string {
-  const clean = bbl.replace(/\D/g, "").padStart(10, "0")
-  return clean  // 10-digit concatenated BBL
 }

@@ -13,8 +13,8 @@ interface RawPLUTO {
   builtfar: string
   lotarea: string
   yearbuilt: string
-  nta: string         // Neighborhood Tabulation Area name
   address: string
+  unitstotal: string
 }
 
 /**
@@ -22,6 +22,7 @@ interface RawPLUTO {
  * Returns a map of BBL → PLUTOData.
  */
 export async function fetchPLUTOData(bbls: string[]): Promise<Map<string, PLUTOData>> {
+  // PLUTOData now includes latitude, longitude, address, totalUnits
   const client = getSocrataClient()
   const result = new Map<string, PLUTOData>()
   const now = new Date().toISOString()
@@ -33,7 +34,7 @@ export async function fetchPLUTOData(bbls: string[]): Promise<Map<string, PLUTOD
 
     const rows = await client.fetchAll<RawPLUTO>(PLUTO_DATASET, {
       $where: `bbl IN (${bblList})`,
-      $select: "bbl,latitude,longitude,zonedist1,builtfar,lotarea,yearbuilt,nta",
+      $select: "bbl,latitude,longitude,zonedist1,builtfar,lotarea,yearbuilt,address,unitstotal",
     })
 
     for (const row of rows) {
@@ -44,11 +45,13 @@ export async function fetchPLUTOData(bbls: string[]): Promise<Map<string, PLUTOD
         far: row.builtfar ? parseFloat(row.builtfar) : null,
         lotArea: row.lotarea ? parseInt(row.lotarea) : null,
         yearBuilt: row.yearbuilt ? parseInt(row.yearbuilt) : null,
-        neighborhood: row.nta ?? null,
+        neighborhood: null, // PLUTO 24v3+ removed NTA field; use borough instead
         latitude: row.latitude ? parseFloat(row.latitude) : null,
         longitude: row.longitude ? parseFloat(row.longitude) : null,
+        address: row.address ?? null,
+        totalUnits: row.unitstotal ? parseInt(row.unitstotal) : null,
         fetchedAt: now,
-      } as PLUTOData & { latitude: number | null; longitude: number | null })
+      })
     }
   }
 

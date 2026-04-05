@@ -17,7 +17,9 @@
  *   9. Log runs to pipeline_runs
  */
 
-import "dotenv/config"
+import { config } from "dotenv"
+config({ path: ".env.local" })
+config() // fallback to .env for CI (GitHub Actions injects env vars directly)
 import { createClient } from "@supabase/supabase-js"
 import { fetchExemptions } from "@/lib/nyc/exemptions"
 import { processExemptions } from "@/lib/analysis/expiration"
@@ -33,6 +35,22 @@ const supabase = createClient(
 )
 
 // ─── Upsert helpers ───────────────────────────────────────────────────────────
+
+const UPSERT_BATCH = 100  // Small batches to avoid large POST bodies
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      if (i === retries - 1) throw err
+      const delay = 2000 * (i + 1)
+      console.warn(`[retry] Attempt ${i + 1} failed, retrying in ${delay}ms...`)
+      await new Promise((r) => setTimeout(r, delay))
+    }
+  }
+  throw new Error("unreachable")
+}
 
 async function upsertExemptions(records: ExemptionRecord[]): Promise<number> {
   const rows = records.map((r) => ({
@@ -54,12 +72,20 @@ async function upsertExemptions(records: ExemptionRecord[]): Promise<number> {
     updated_at: new Date().toISOString(),
   }))
 
-  const { error, count } = await supabase
-    .from("exemptions")
-    .upsert(rows, { onConflict: "bbl", count: "exact" })
-
-  if (error) throw new Error(`[exemptions upsert] ${error.message}`)
-  return count ?? rows.length
+  let total = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("exemptions")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[exemptions upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    total += batchCount
+  }
+  return total
 }
 
 async function upsertHPD(hpdMap: Map<string, HPDData>): Promise<number> {
@@ -72,15 +98,23 @@ async function upsertHPD(hpdMap: Map<string, HPDData>): Promise<number> {
     fetched_at: h.fetchedAt,
   }))
 
-  const { error, count } = await supabase
-    .from("hpd_data")
-    .upsert(rows, { onConflict: "bbl", count: "exact" })
-
-  if (error) throw new Error(`[hpd upsert] ${error.message}`)
-  return count ?? rows.length
+  let total = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("hpd_data")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[hpd upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    total += batchCount
+  }
+  return total
 }
 
-async function upsertPLUTO(plutoMap: Map<string, PLUTOData & { latitude: number | null; longitude: number | null }>): Promise<number> {
+async function upsertPLUTO(plutoMap: Map<string, PLUTOData>): Promise<number> {
   const rows = Array.from(plutoMap.values()).map((p) => ({
     bbl: p.bbl,
     zoning: p.zoning,
@@ -88,17 +122,27 @@ async function upsertPLUTO(plutoMap: Map<string, PLUTOData & { latitude: number 
     lot_area: p.lotArea,
     year_built: p.yearBuilt,
     neighborhood: p.neighborhood,
-    latitude: (p as PLUTOData & { latitude: number | null }).latitude,
-    longitude: (p as PLUTOData & { longitude: number | null }).longitude,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    address: p.address,
+    total_units: p.totalUnits,
     fetched_at: p.fetchedAt,
   }))
 
-  const { error, count } = await supabase
-    .from("pluto_data")
-    .upsert(rows, { onConflict: "bbl", count: "exact" })
-
-  if (error) throw new Error(`[pluto upsert] ${error.message}`)
-  return count ?? rows.length
+  let plutoTotal = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("pluto_data")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[pluto upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    plutoTotal += batchCount
+  }
+  return plutoTotal
 }
 
 async function upsertScores(scores: ReturnType<typeof scoreAll>): Promise<number> {
@@ -113,12 +157,20 @@ async function upsertScores(scores: ReturnType<typeof scoreAll>): Promise<number
     scored_at: s.scoredAt,
   }))
 
-  const { error, count } = await supabase
-    .from("property_scores")
-    .upsert(rows, { onConflict: "bbl", count: "exact" })
-
-  if (error) throw new Error(`[scores upsert] ${error.message}`)
-  return count ?? rows.length
+  let total = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("property_scores")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[scores upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    total += batchCount
+  }
+  return total
 }
 
 async function logRun(run: PipelineRun): Promise<void> {
@@ -173,7 +225,7 @@ async function main() {
   ])
   const [hpdCount, plutoCount] = await Promise.all([
     upsertHPD(hpdMap),
-    upsertPLUTO(plutoMap as Map<string, PLUTOData & { latitude: number | null; longitude: number | null }>),
+    upsertPLUTO(plutoMap),
   ])
   await logRun({ dataset: "hpd+pluto", rowsUpserted: hpdCount + plutoCount, durationMs: Date.now() - t3, status: "success" })
   console.log(`[pipeline] Upserted ${hpdCount} HPD + ${plutoCount} PLUTO records`)
