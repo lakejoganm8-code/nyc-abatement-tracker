@@ -299,8 +299,33 @@ async function main() {
   console.log(`[pipeline] Upserted ${exemptCount} exemption records`)
 
   const bbls = targetRecords.map((r) => r.bbl)
+  const currentYear = new Date().getFullYear()
 
-  // Step 3: HPD + PLUTO in parallel
+  // Priority BBLs: expiring soonest — used for ACRIS + evictions (capped for time budget)
+  const PRIORITY_MAX = 5000
+  const priorityBBLs = targetRecords
+    .filter((r) => r.expirationYear != null && r.expirationYear <= currentYear + 2)
+    .map((r) => r.bbl)
+    .slice(0, PRIORITY_MAX)
+
+  // Step 3: ACRIS bulk — run FIRST (before HPD) so it writes early
+  // Only fetches priority BBLs (~5k); incremental per-batch upserts
+  console.log(`[pipeline] Fetching ACRIS for ${priorityBBLs.length} priority BBLs (expiring ≤ ${currentYear + 2})...`)
+  const t35 = Date.now()
+  const acrisMap = new Map<string, import("@/types").ACRISRecord>()
+  let acrisTotal = 0
+  for (let i = 0; i < priorityBBLs.length; i += ACRIS_SUPER_WAVE) {
+    const batch = priorityBBLs.slice(i, i + ACRIS_SUPER_WAVE)
+    const batchMap = await fetchACRISBatch(batch)
+    const batchCount = await upsertACRIS(batchMap)
+    acrisTotal += batchCount
+    for (const [bbl, rec] of batchMap) acrisMap.set(bbl, rec)
+    console.log(`[pipeline] ACRIS batch ${Math.floor(i / ACRIS_SUPER_WAVE) + 1}/${Math.ceil(priorityBBLs.length / ACRIS_SUPER_WAVE)}: ${batchMap.size} matched, ${batchCount} upserted`)
+  }
+  await logRun({ dataset: "acris", rowsUpserted: acrisTotal, durationMs: Date.now() - t35, status: "success" })
+  console.log(`[pipeline] ACRIS complete: ${acrisTotal} records upserted (${Date.now() - t35}ms)`)
+
+  // Step 3.5: HPD + PLUTO in parallel (all target BBLs)
   console.log(`[pipeline] Fetching HPD + PLUTO for ${bbls.length} BBLs...`)
   const t3 = Date.now()
   const [hpdMap, plutoMap] = await Promise.all([
@@ -309,44 +334,22 @@ async function main() {
   ])
   console.log(`[pipeline] HPD: ${hpdMap.size} records, PLUTO: ${plutoMap.size} records`)
 
-  // Step 3.5: ACRIS bulk — prioritize properties expiring soonest (next 24 months)
-  // ACRIS data changes rarely; cap at 5000 BBLs per run to stay within time budget
-  const ACRIS_MAX_BBLS = 5000
-  const currentYear = new Date().getFullYear()
-  const acrisPriorityBBLs = targetRecords
-    .filter((r) => r.expirationYear != null && r.expirationYear <= currentYear + 2)
-    .map((r) => r.bbl)
-  const bblsNeedingACRIS = acrisPriorityBBLs.slice(0, ACRIS_MAX_BBLS)
-  console.log(`[pipeline] Fetching ACRIS bulk for ${bblsNeedingACRIS.length} BBLs in batches of ${ACRIS_SUPER_WAVE}...`)
-  const t35 = Date.now()
-  const acrisMap = new Map<string, import("@/types").ACRISRecord>()
-  let acrisTotal = 0
-  for (let i = 0; i < bblsNeedingACRIS.length; i += ACRIS_SUPER_WAVE) {
-    const batch = bblsNeedingACRIS.slice(i, i + ACRIS_SUPER_WAVE)
-    const batchMap = await fetchACRISBatch(batch)
-    const batchCount = await upsertACRIS(batchMap)
-    acrisTotal += batchCount
-    for (const [bbl, rec] of batchMap) acrisMap.set(bbl, rec)
-    console.log(`[pipeline] ACRIS batch ${Math.floor(i / ACRIS_SUPER_WAVE) + 1}/${Math.ceil(bblsNeedingACRIS.length / ACRIS_SUPER_WAVE)}: ${batchMap.size} matched, ${batchCount} upserted (${Date.now() - t35}ms total)`)
-  }
-  await logRun({ dataset: "acris", rowsUpserted: acrisTotal, durationMs: Date.now() - t35, status: "success" })
-  console.log(`[pipeline] ACRIS complete: ${acrisTotal} total records upserted`)
-
-  // Step 3.6: Stabilization classification (no HCR registry — classify by exemption type)
+  // Step 3.6: Stabilization classification
   const t36s = Date.now()
   const stabCount = await upsertStabilization(new Map(), targetRecords)
   console.log(`[pipeline] Stabilization: ${stabCount} records classified (${Date.now() - t36s}ms)`)
 
-  // Step 3.7: Eviction counts (matched by BBL directly)
-  console.log(`[pipeline] Fetching eviction counts for ${bbls.length} BBLs...`)
+  // Step 3.7: Eviction counts (priority BBLs only)
+  console.log(`[pipeline] Fetching eviction counts for ${priorityBBLs.length} priority BBLs...`)
   const t36 = Date.now()
-  const evictionMap = await fetchEvictionCounts(bbls)
-  for (const [bbl, hpd] of hpdMap) {
-    if (evictionMap.has(bbl)) {
+  const evictionMap = await fetchEvictionCounts(priorityBBLs)
+  for (const bbl of priorityBBLs) {
+    const hpd = hpdMap.get(bbl)
+    if (hpd && evictionMap.has(bbl)) {
       hpdMap.set(bbl, { ...hpd, evictionCount12mo: evictionMap.get(bbl) ?? 0 })
     }
   }
-  console.log(`[pipeline] Evictions: ${evictionMap.size} buildings with filings in last 12mo (${Date.now() - t36}ms)`)
+  console.log(`[pipeline] Evictions: ${evictionMap.size} buildings with filings (${Date.now() - t36}ms)`)
 
   // Upsert HPD + PLUTO (after eviction counts merged in)
   const [hpdCount, plutoCount] = await Promise.all([
