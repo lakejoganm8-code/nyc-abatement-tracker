@@ -1,5 +1,6 @@
 import { SCORE_WEIGHTS } from "./config"
-import type { ExemptionRecord, HPDData, ACRISRecord, PropertyScore, ScoreComponents } from "@/types"
+import { inferAMITier, computeRentUpside, assessDeregulationRisk } from "./rent-upside"
+import type { ExemptionRecord, HPDData, ACRISRecord, PLUTOData, PropertyScore, ScoreComponents } from "@/types"
 
 // ─── Normalization helpers ────────────────────────────────────────────────────
 
@@ -79,7 +80,8 @@ function violationScore(violationCount12mo: number): number {
 export function scoreProperty(
   exemption: ExemptionRecord,
   hpd: HPDData | null,
-  acris: ACRISRecord | null
+  acris: ACRISRecord | null,
+  pluto: PLUTOData | null
 ): PropertyScore {
   const components: ScoreComponents = {
     taxImpact: taxImpactScore(exemption.annualExemptAmount),
@@ -96,16 +98,24 @@ export function scoreProperty(
   }
 
   const distressScore =
-    components.taxImpact       * SCORE_WEIGHTS.taxImpact +
-    components.timeToExpiration * SCORE_WEIGHTS.timeToExpiration +
-    components.debtLoad         * SCORE_WEIGHTS.debtLoad +
+    components.taxImpact        * SCORE_WEIGHTS.taxImpact +
+    components.timeToExpiration  * SCORE_WEIGHTS.timeToExpiration +
+    components.debtLoad          * SCORE_WEIGHTS.debtLoad +
     components.ownershipDuration * SCORE_WEIGHTS.ownershipDuration +
-    components.violations       * SCORE_WEIGHTS.violations
+    components.violations        * SCORE_WEIGHTS.violations
+
+  const totalUnits = pluto?.totalUnits ?? hpd?.totalUnits ?? null
+  const amiTier = inferAMITier(exemption.exemptionCode)
+  const estimatedAnnualRentUpside = computeRentUpside(totalUnits, exemption.exemptionCode)
+  const deregulationRisk = assessDeregulationRisk(exemption.exemptionCode, pluto?.yearBuilt ?? null)
 
   return {
     bbl: exemption.bbl,
     distressScore: Math.round(distressScore * 10) / 10,
     components,
+    estimatedAnnualRentUpside,
+    deregulationRisk,
+    amiTier,
     scoredAt: new Date().toISOString(),
   }
 }
@@ -116,9 +126,15 @@ export function scoreProperty(
 export function scoreAll(
   exemptions: ExemptionRecord[],
   hpdMap: Map<string, HPDData>,
-  acrisMap: Map<string, ACRISRecord>
+  acrisMap: Map<string, ACRISRecord>,
+  plutoMap: Map<string, PLUTOData>
 ): PropertyScore[] {
   return exemptions
-    .map((e) => scoreProperty(e, hpdMap.get(e.bbl) ?? null, acrisMap.get(e.bbl) ?? null))
+    .map((e) => scoreProperty(
+      e,
+      hpdMap.get(e.bbl) ?? null,
+      acrisMap.get(e.bbl) ?? null,
+      plutoMap.get(e.bbl) ?? null,
+    ))
     .sort((a, b) => b.distressScore - a.distressScore)
 }

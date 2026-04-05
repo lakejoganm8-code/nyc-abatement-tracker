@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     minScore: parseFloat(searchParams.get("minScore") ?? "0"),
     buildingClass: searchParams.get("buildingClass") ?? undefined,
     minUnits: parseInt(searchParams.get("minUnits") ?? "0") || undefined,
+    owner: searchParams.get("owner") ?? undefined,
     limit: parseInt(searchParams.get("limit") ?? "100"),
     offset: parseInt(searchParams.get("offset") ?? "0"),
   }
@@ -34,6 +35,10 @@ export async function GET(request: NextRequest) {
 
   if (filters.minUnits) {
     query = query.gte("total_units", filters.minUnits)
+  }
+
+  if (filters.owner) {
+    query = query.ilike("owner_name", `%${filters.owner}%`)
   }
 
   if (filters.maxMonths !== undefined) {

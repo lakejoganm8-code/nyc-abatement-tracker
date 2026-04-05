@@ -51,10 +51,17 @@ export function DashboardView({ data, searchParams }: DashboardViewProps) {
 
   const totalExempt = data.reduce((s, p) => s + (p.annual_exempt_amount ?? 0), 0)
 
+  const totalUpside = data.reduce((s, p) => s + (p.estimated_annual_rent_upside ?? 0), 0)
+  const fmtUpside = (n: number) => {
+    if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(0)}M`
+    return fmt$(n)
+  }
+
   return (
     <div className="space-y-4">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard
           label="Properties"
           value={data.length.toLocaleString()}
@@ -74,6 +81,11 @@ export function DashboardView({ data, searchParams }: DashboardViewProps) {
           label="Total Annual Exempt"
           value={fmt$(totalExempt)}
           sub="across all properties"
+        />
+        <StatCard
+          label="Total Rent Upside"
+          value={totalUpside > 0 ? fmtUpside(totalUpside) + "/yr" : "—"}
+          sub="est. post-expiration gain"
         />
       </div>
 

@@ -80,16 +80,28 @@ export async function getACRISData(bbl: string): Promise<ACRISRecord | null> {
   const mortgageDate = latestMortgage?.recorded_datetime?.split("T")[0] ?? null
   const mortgageDocId = latestMortgage?.document_id ?? null
 
-  // ── Step 4: Get lender name from Parties ──────────────────────────────────
+  // ── Step 4: Get lender + owner names from Parties ────────────────────────
   let lenderName: string | null = null
+  let ownerName: string | null = null
+
+  const deedDocId = deedRows[0]?.document_id ?? null
+
   if (mortgageDocId) {
     const parties = await client.fetchAll(DATASETS.ACRIS_PARTIES, {
-      $where: `document_id='${mortgageDocId}' AND party_type='2'`,  // party_type 2 = lender/mortgagee
+      $where: `document_id='${mortgageDocId}' AND party_type='2'`,  // party_type 2 = lender
       $select: "name",
       $limit: 5,
     }) as { name: string }[]
-
     lenderName = parties[0]?.name ?? null
+  }
+
+  if (deedDocId) {
+    const parties = await client.fetchAll(DATASETS.ACRIS_PARTIES, {
+      $where: `document_id='${deedDocId}' AND party_type='1'`,  // party_type 1 = grantee/owner
+      $select: "name",
+      $limit: 5,
+    }) as { name: string }[]
+    ownerName = parties[0]?.name ?? null
   }
 
   return {
@@ -99,6 +111,7 @@ export async function getACRISData(bbl: string): Promise<ACRISRecord | null> {
     lastMortgageAmount,
     mortgageDate,
     lenderName,
+    ownerName,
     ownershipYears,
     fetchedAt: now,
   }

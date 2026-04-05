@@ -27,6 +27,7 @@ export async function GET(
     last_mortgage_amount: property.last_mortgage_amount,
     mortgage_date: property.mortgage_date,
     lender_name: property.lender_name,
+    owner_name: property.owner_name,
     ownership_years: property.ownership_years,
   } : null
 
@@ -52,6 +53,7 @@ export async function GET(
           last_mortgage_amount: fresh.lastMortgageAmount,
           mortgage_date: fresh.mortgageDate,
           lender_name: fresh.lenderName,
+          owner_name: fresh.ownerName,
           ownership_years: fresh.ownershipYears,
           fetched_at: fresh.fetchedAt,
         }, { onConflict: "bbl" })
@@ -62,6 +64,7 @@ export async function GET(
           last_mortgage_amount: fresh.lastMortgageAmount,
           mortgage_date: fresh.mortgageDate,
           lender_name: fresh.lenderName,
+          owner_name: fresh.ownerName,
           ownership_years: fresh.ownershipYears,
         }
       }

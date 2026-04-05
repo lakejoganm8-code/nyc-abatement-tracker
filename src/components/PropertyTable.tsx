@@ -24,6 +24,7 @@ export interface PropertyRow {
   address: string
   borough: string
   benefit_type: string | null
+  ami_tier: string | null
   benefit_start_year: number | null
   expiration_year: number | null
   phase_out_start_year: number | null
@@ -32,10 +33,23 @@ export interface PropertyRow {
   building_class: string
   total_units: number | null
   violation_count_12mo: number
+  eviction_count_12mo: number
   distress_score: number
   edge_case_flags: string[]
   latitude: number | null
   longitude: number | null
+  // Financial
+  owner_name: string | null
+  last_deed_date: string | null
+  last_sale_price: number | null
+  last_mortgage_amount: number | null
+  ownership_years: number | null
+  lender_name: string | null
+  // Enrichment
+  estimated_annual_rent_upside: number | null
+  deregulation_risk: "high" | "medium" | "low" | null
+  is_rent_stabilized: boolean | null
+  stabilization_source: string | null
 }
 
 const col = createColumnHelper<PropertyRow>()
@@ -55,9 +69,29 @@ const BOROUGH_LABELS: Record<string, string> = {
   staten_island: "Staten Island",
 }
 
+const DEREG_COLORS: Record<string, string> = {
+  high: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  medium: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+}
+
 function fmt$(n: number | null): string {
   if (!n) return "—"
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n)
+}
+
+function fmtUpside(n: number | null): string {
+  if (n === null || n === 0) return "—"
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`
+  return fmt$(n)
+}
+
+const AMI_TIER_COLORS: Record<string, string> = {
+  "60%": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  "80%": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+  "market": "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  "none": "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500",
 }
 
 const COLUMNS = [
@@ -68,11 +102,27 @@ const COLUMNS = [
   }),
   col.accessor("address", {
     header: "Address",
-    cell: (info) => (
-      <span className="max-w-[200px] truncate block font-medium text-sm">
-        {info.getValue() || info.row.original.bbl}
-      </span>
-    ),
+    cell: (info) => {
+      const row = info.row.original
+      const tier = row.ami_tier
+      return (
+        <div className="max-w-[220px]">
+          <span className="truncate block font-medium text-sm">
+            {info.getValue() || row.bbl}
+          </span>
+          <div className="flex items-center gap-1 mt-0.5">
+            {row.benefit_type && (
+              <span className="text-xs text-muted-foreground truncate">{row.benefit_type}</span>
+            )}
+            {tier && tier !== "none" && (
+              <span className={cn("text-[10px] px-1 py-0 rounded font-medium", AMI_TIER_COLORS[tier] ?? "")}>
+                {tier === "market" ? "Market" : `${tier} AMI`}
+              </span>
+            )}
+          </div>
+        </div>
+      )
+    },
   }),
   col.accessor("borough", {
     header: "Borough",
@@ -108,6 +158,28 @@ const COLUMNS = [
     cell: (info) => (
       <span className="tabular-nums">{fmt$(info.getValue())}</span>
     ),
+  }),
+  col.accessor("estimated_annual_rent_upside", {
+    header: "Rent Upside/yr",
+    sortDescFirst: true,
+    cell: (info) => (
+      <span className={cn("tabular-nums", info.getValue() ? "text-emerald-700 dark:text-emerald-400 font-medium" : "text-muted-foreground")}>
+        {fmtUpside(info.getValue())}
+      </span>
+    ),
+  }),
+  col.accessor("deregulation_risk", {
+    header: "Dereg Risk",
+    enableSorting: false,
+    cell: (info) => {
+      const risk = info.getValue()
+      if (!risk) return <span className="text-muted-foreground text-xs">—</span>
+      return (
+        <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium", DEREG_COLORS[risk])}>
+          {risk.charAt(0).toUpperCase() + risk.slice(1)}
+        </span>
+      )
+    },
   }),
   col.accessor("total_units", {
     header: "Units",

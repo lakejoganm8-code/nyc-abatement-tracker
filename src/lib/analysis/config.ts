@@ -10,6 +10,9 @@ export const DATASETS = {
   ACRIS_LEGALS: "8h5j-fqxa",       // ACRIS Real Property Legals (BBL → doc_id)
   ACRIS_MASTER: "bnx9-e6tj",       // ACRIS Real Property Master (doc_id → details)
   ACRIS_PARTIES: "636b-3b5g",      // ACRIS Real Property Parties (doc_id → names)
+  HCR_STABILIZED: "8y9c-t29b",     // DHCR Rent Stabilized Building List
+  EVICTIONS: "6z8x-tj6h",          // NYC Housing Court Evictions (match by HPD buildingid)
+  PLUTO: "64uk-42ks",              // MapPLUTO (zoning, FAR, coordinates, year built)
 } as const
 
 export const SOCRATA_BASE_URL = "https://data.cityofnewyork.us/resource"
@@ -113,3 +116,46 @@ export const DEFAULT_WINDOW_MAX_MONTHS = 36
 export const ACRIS_DEED_TYPES = ["DEED", "DEEDO", "DEED, BARGAIN AND SALE"]
 export const ACRIS_MORTGAGE_TYPES = ["MTGE", "AGMT", "MORTGAGE"]
 export const ACRIS_SATISFACTION_TYPES = ["SAT", "SATISFACTION OF MORTGAGE"]
+
+// ─── AMI rent data (update annually) ─────────────────────────────────────────
+// Source: NYC HPD Area Median Income page (2025 values)
+
+export const AMI_YEAR = 2025
+
+// Maximum regulated rents by AMI tier and unit type
+export const AMI_RENTS: Record<string, Record<string, number>> = {
+  "60%": { studio: 1701, "1br": 1822, "2br": 2187, "3br": 2527 },
+  "80%": { studio: 2268, "1br": 2430, "2br": 2916, "3br": 3370 },
+}
+
+// Conservative 2025 NYC market rents (blended avg across neighborhoods)
+export const MARKET_RENTS: Record<string, number> = {
+  studio: 2800, "1br": 3500, "2br": 4800, "3br": 6500,
+}
+
+// Blended unit mix for buildings where only total_units is known
+// 20% studio / 50% 1BR / 25% 2BR / 5% 3BR (NYC multifamily average)
+export const BLENDED_UNIT_MIX: Record<string, number> = {
+  studio: 0.20, "1br": 0.50, "2br": 0.25, "3br": 0.05,
+}
+
+// AMI tier per exemption code (static mapping, update if programs change)
+export const EXEMPTION_AMI_TIER: Record<string, string> = {
+  "5100": "60%",    // 421-a standard
+  "5101": "60%",    // 421-a (condo)
+  "5110": "60%",    // 421-a (10yr)
+  "5112": "60%",    // 421-a (12yr)
+  "5113": "60%",    // 421-a (15yr)
+  "5114": "60%",    // 421-a (20yr)
+  "5116": "80%",    // 421-a (affordable)
+  "5117": "80%",    // 421-a (affordable, extended)
+  "5118": "80%",    // 421-a (25yr affordable)
+  "5121": "market", // 421-a(16) Affordable NY — market-rate units
+  "5122": "market", // 421-a(16) Affordable NY (condo)
+  "5129": "none",   // J-51 (rehabilitation) — no AMI cap
+  "5130": "none",   // J-51 (conversion) — no AMI cap
+}
+
+// Buildings built before this year may have been stabilized pre-abatement
+// (NYC Rent Stabilization Law: pre-1974 buildings with 6+ units)
+export const STABILIZATION_CUTOFF_YEAR = 1974

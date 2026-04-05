@@ -74,6 +74,7 @@ export interface ACRISRecord {
   lastMortgageAmount: number | null
   mortgageDate: string | null
   lenderName: string | null
+  ownerName: string | null           // deed grantee (current owner)
   ownershipYears: number | null
   fetchedAt: string
 }
@@ -85,7 +86,9 @@ export interface HPDData {
   totalUnits: number | null
   buildingClass: string | null
   registrationStatus: string | null
+  registrationId: string | null
   violationCount12mo: number
+  evictionCount12mo: number
   fetchedAt: string
 }
 
@@ -115,10 +118,15 @@ export interface ScoreComponents {
   violations: number       // 0–100
 }
 
+export type DeregulationRisk = "high" | "medium" | "low"
+
 export interface PropertyScore {
   bbl: string
   distressScore: number    // 0–100 weighted total
   components: ScoreComponents
+  estimatedAnnualRentUpside: number | null
+  deregulationRisk: DeregulationRisk | null
+  amiTier: string          // "60%" | "80%" | "market" | "none"
   scoredAt: string
 }
 
@@ -145,11 +153,16 @@ export interface PropertyRecord {
   lastMortgageAmount: number | null
   mortgageDate: string | null
   lenderName: string | null
+  ownerName: string | null
   ownershipYears: number | null
   // from hpd
   totalUnits: number | null
   violationCount12mo: number
+  evictionCount12mo: number
   registrationStatus: string | null
+  // stabilization
+  isRentStabilized: boolean | null
+  stabilizationSource: string | null
   // from pluto
   latitude: number | null
   longitude: number | null
@@ -160,6 +173,9 @@ export interface PropertyRecord {
   // score
   distressScore: number
   scoreComponents: ScoreComponents
+  estimatedAnnualRentUpside: number | null
+  deregulationRisk: DeregulationRisk | null
+  amiTier: string
 }
 
 // ─── API filter params ────────────────────────────────────────────────────────
@@ -171,6 +187,7 @@ export interface PropertyFilters {
   minScore?: number    // default 0
   buildingClass?: string
   minUnits?: number
+  owner?: string       // owner name search (ilike)
   limit?: number
   offset?: number
 }

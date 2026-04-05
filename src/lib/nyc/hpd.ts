@@ -1,39 +1,9 @@
 import { getSocrataClient } from "./socrata"
 import { DATASETS } from "@/lib/analysis/config"
+import { buildBBLOrClause, rowToBBL } from "./bbl-utils"
 import type { HPDData } from "@/types"
 
 const CHUNK_SIZE = 100  // OR-condition queries are longer; use smaller chunks
-
-/**
- * Parse a 10-digit padded BBL into boro/block/lot parts (without leading zeros
- * on block/lot, matching how HPD datasets store these fields).
- */
-function parseBBLParts(bbl: string): { boro: string; block: string; lot: string } {
-  const clean = bbl.replace(/\D/g, "").padStart(10, "0")
-  return {
-    boro: clean[0],
-    block: String(parseInt(clean.slice(1, 6), 10)), // strip leading zeros
-    lot: String(parseInt(clean.slice(6, 10), 10)),  // strip leading zeros
-  }
-}
-
-/** Build an OR-clause for matching BBLs against HPD's separate boro/block/lot columns */
-function buildBBLOrClause(bbls: string[]): string {
-  return bbls
-    .map((b) => {
-      const { boro, block, lot } = parseBBLParts(b)
-      return `(boroid='${boro}' AND block='${block}' AND lot='${lot}')`
-    })
-    .join(" OR ")
-}
-
-/** Reconstruct 10-digit padded BBL from HPD row fields */
-function rowToBBL(row: Record<string, string>): string {
-  const boro = row.boroid ?? "0"
-  const block = (row.block ?? "0").padStart(5, "0")
-  const lot = (row.lot ?? "0").padStart(4, "0")
-  return `${boro}${block}${lot}`
-}
 
 /**
  * Fetch HPD registration data for a list of BBLs.
@@ -57,14 +27,14 @@ export async function fetchHPDRegistrations(
     for (const row of rows as Record<string, string>[]) {
       const bbl = rowToBBL(row)
       if (!result.has(bbl)) {
-        // Active if registrationenddate is null or in the future
         const endDate = row.registrationenddate
         const isActive = !endDate || new Date(endDate) > new Date()
         result.set(bbl, {
           bbl,
-          totalUnits: null,      // unit counts come from PLUTO
-          buildingClass: null,   // building class comes from exemptions / PLUTO
+          totalUnits: null,
+          buildingClass: null,
           registrationStatus: isActive ? "registered" : "lapsed",
+          registrationId: row.registrationid ?? null,
         })
       }
     }
@@ -122,7 +92,9 @@ export async function getHPDData(bbls: string[]): Promise<Map<string, HPDData>> 
       totalUnits: reg.totalUnits ?? null,
       buildingClass: reg.buildingClass ?? null,
       registrationStatus: reg.registrationStatus ?? null,
+      registrationId: reg.registrationId ?? null,
       violationCount12mo: violations.get(bbl) ?? 0,
+      evictionCount12mo: 0,  // populated later in pipeline via fetchEvictionCounts
       fetchedAt: now,
     })
   }

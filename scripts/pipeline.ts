@@ -10,11 +10,14 @@
  *   2. Compute expiration dates + classify status
  *   3. Filter to target window (approaching/in-phase-out)
  *   4. Upsert exemptions table
- *   5. Fetch HPD data (unit counts + violations)
- *   6. Fetch PLUTO data (lat/lng, zoning, year built)
- *   7. Upsert hpd_data + pluto_data
- *   8. Compute distress scores + upsert property_scores
- *   9. Log runs to pipeline_runs
+ *   5. Fetch HPD + PLUTO in parallel
+ *   6. Fetch ACRIS bulk (deed/mortgage for target BBLs)
+ *   7. Fetch HCR rent stabilization registry
+ *   8. Fetch eviction counts (via HPD registration IDs)
+ *   9. Upsert all enrichment tables
+ *  10. Compute distress scores + rent upside + deregulation risk
+ *  11. Upsert property_scores
+ *  12. Log runs to pipeline_runs
  */
 
 import { config } from "dotenv"
@@ -25,8 +28,12 @@ import { fetchExemptions } from "@/lib/nyc/exemptions"
 import { processExemptions } from "@/lib/analysis/expiration"
 import { getHPDData } from "@/lib/nyc/hpd"
 import { fetchPLUTOData } from "@/lib/nyc/pluto"
+import { fetchACRISBulk } from "@/lib/nyc/acris-bulk"
+import { fetchHCRStabilizedBuildings } from "@/lib/nyc/hcr"
+import { fetchEvictionCounts } from "@/lib/nyc/evictions"
 import { scoreAll } from "@/lib/analysis/scoring"
-import type { ExemptionRecord, HPDData, PLUTOData, PipelineRun } from "@/types"
+import { EXEMPTION_CODES_421A, EXEMPTION_CODES_J51 } from "@/lib/analysis/config"
+import type { ExemptionRecord, HPDData, PLUTOData, ACRISRecord, PipelineRun } from "@/types"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,7 +101,9 @@ async function upsertHPD(hpdMap: Map<string, HPDData>): Promise<number> {
     total_units: h.totalUnits,
     building_class: h.buildingClass,
     registration_status: h.registrationStatus,
+    registration_id: h.registrationId,
     violation_count_12mo: h.violationCount12mo,
+    eviction_count_12mo: h.evictionCount12mo,
     fetched_at: h.fetchedAt,
   }))
 
@@ -129,7 +138,7 @@ async function upsertPLUTO(plutoMap: Map<string, PLUTOData>): Promise<number> {
     fetched_at: p.fetchedAt,
   }))
 
-  let plutoTotal = 0
+  let total = 0
   for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
     const batch = rows.slice(i, i + UPSERT_BATCH)
     let batchCount = 0
@@ -140,9 +149,81 @@ async function upsertPLUTO(plutoMap: Map<string, PLUTOData>): Promise<number> {
       if (error) throw new Error(`[pluto upsert] ${error.message}`)
       batchCount = count ?? batch.length
     })
-    plutoTotal += batchCount
+    total += batchCount
   }
-  return plutoTotal
+  return total
+}
+
+async function upsertACRIS(acrisMap: Map<string, ACRISRecord>): Promise<number> {
+  const rows = Array.from(acrisMap.values()).map((a) => ({
+    bbl: a.bbl,
+    last_deed_date: a.lastDeedDate,
+    last_sale_price: a.lastSalePrice,
+    last_mortgage_amount: a.lastMortgageAmount,
+    mortgage_date: a.mortgageDate,
+    lender_name: a.lenderName,
+    owner_name: a.ownerName,
+    ownership_years: a.ownershipYears,
+    fetched_at: a.fetchedAt,
+  }))
+
+  let total = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("acris_records")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[acris upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    total += batchCount
+  }
+  return total
+}
+
+async function upsertStabilization(
+  hcrMap: Map<string, boolean>,
+  records: ExemptionRecord[]
+): Promise<number> {
+  const rows = records.map((r) => {
+    const isInHCR = hcrMap.get(r.bbl) === true
+    const is421a = EXEMPTION_CODES_421A.has(r.exemptionCode)
+    const isJ51 = EXEMPTION_CODES_J51.has(r.exemptionCode)
+
+    let stabilizationSource: string
+    if (isInHCR) {
+      stabilizationSource = "hcr_registered"
+    } else if (is421a) {
+      stabilizationSource = "421a_active"
+    } else if (isJ51) {
+      stabilizationSource = "j51_active"
+    } else {
+      stabilizationSource = "deregulated_risk"
+    }
+
+    return {
+      bbl: r.bbl,
+      is_rent_stabilized: stabilizationSource !== "deregulated_risk",
+      stabilization_source: stabilizationSource,
+    }
+  })
+
+  let total = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("exemptions")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[stabilization upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    total += batchCount
+  }
+  return total
 }
 
 async function upsertScores(scores: ReturnType<typeof scoreAll>): Promise<number> {
@@ -154,6 +235,9 @@ async function upsertScores(scores: ReturnType<typeof scoreAll>): Promise<number
     debt_component: s.components.debtLoad,
     ownership_component: s.components.ownershipDuration,
     violation_component: s.components.violations,
+    estimated_annual_rent_upside: s.estimatedAnnualRentUpside,
+    deregulation_risk: s.deregulationRisk,
+    ami_tier: s.amiTier,
     scored_at: s.scoredAt,
   }))
 
@@ -223,6 +307,43 @@ async function main() {
     getHPDData(bbls),
     fetchPLUTOData(bbls),
   ])
+  console.log(`[pipeline] HPD: ${hpdMap.size} records, PLUTO: ${plutoMap.size} records`)
+
+  // Step 3.5: ACRIS bulk (deed/mortgage for target window)
+  console.log(`[pipeline] Fetching ACRIS bulk for ${bbls.length} BBLs...`)
+  const t35 = Date.now()
+  const acrisMap = await fetchACRISBulk(bbls)
+  const acrisCount = await upsertACRIS(acrisMap)
+  await logRun({ dataset: "acris", rowsUpserted: acrisCount, durationMs: Date.now() - t35, status: "success" })
+  console.log(`[pipeline] Upserted ${acrisCount} ACRIS records (${acrisMap.size} BBLs matched)`)
+
+  // Step 3.6: HCR stabilization registry
+  console.log(`[pipeline] Fetching HCR stabilization registry...`)
+  const t36 = Date.now()
+  const hcrMap = await fetchHCRStabilizedBuildings(bbls)
+  const stabCount = await upsertStabilization(hcrMap, targetRecords)
+  await logRun({ dataset: "hcr_stabilization", rowsUpserted: stabCount, durationMs: Date.now() - t36, status: "success" })
+  console.log(`[pipeline] HCR: ${hcrMap.size} stabilized buildings found, ${stabCount} records updated`)
+
+  // Step 3.7: Eviction counts (via HPD registration IDs)
+  const registrationIds = Array.from(hpdMap.values())
+    .map((h) => h.registrationId)
+    .filter((id): id is string => id !== null)
+
+  if (registrationIds.length > 0) {
+    console.log(`[pipeline] Fetching eviction counts for ${registrationIds.length} registration IDs...`)
+    const t37 = Date.now()
+    const evictionMap = await fetchEvictionCounts(registrationIds)
+    // Merge eviction counts back into hpdMap
+    for (const [bbl, hpd] of hpdMap) {
+      if (hpd.registrationId && evictionMap.has(hpd.registrationId)) {
+        hpdMap.set(bbl, { ...hpd, evictionCount12mo: evictionMap.get(hpd.registrationId) ?? 0 })
+      }
+    }
+    console.log(`[pipeline] Evictions: ${evictionMap.size} buildings with filings in last 12mo (${Date.now() - t37}ms)`)
+  }
+
+  // Upsert HPD + PLUTO (after eviction counts merged in)
   const [hpdCount, plutoCount] = await Promise.all([
     upsertHPD(hpdMap),
     upsertPLUTO(plutoMap),
@@ -230,10 +351,10 @@ async function main() {
   await logRun({ dataset: "hpd+pluto", rowsUpserted: hpdCount + plutoCount, durationMs: Date.now() - t3, status: "success" })
   console.log(`[pipeline] Upserted ${hpdCount} HPD + ${plutoCount} PLUTO records`)
 
-  // Step 4: Scores
+  // Step 4: Scores (now with ACRIS + PLUTO data — fixes the empty-map bug)
   console.log("[pipeline] Computing distress scores...")
   const t4 = Date.now()
-  const scores = scoreAll(targetRecords, hpdMap, new Map())
+  const scores = scoreAll(targetRecords, hpdMap, acrisMap, plutoMap)
   const scoreCount = await upsertScores(scores)
   await logRun({ dataset: "scores", rowsUpserted: scoreCount, durationMs: Date.now() - t4, status: "success" })
   console.log(`[pipeline] Upserted ${scoreCount} score records`)
@@ -241,7 +362,11 @@ async function main() {
   console.log("\n[pipeline] Top 5 by distress score:")
   scores.slice(0, 5).forEach((s, i) => {
     const e = targetRecords.find((r) => r.bbl === s.bbl)
-    console.log(`  ${i + 1}. ${e?.address ?? s.bbl} — score: ${s.distressScore}`)
+    console.log(
+      `  ${i + 1}. ${e?.address ?? s.bbl} — score: ${s.distressScore}` +
+      ` | upside: ${s.estimatedAnnualRentUpside ? `$${(s.estimatedAnnualRentUpside / 1000).toFixed(0)}k/yr` : "N/A"}` +
+      ` | dereg: ${s.deregulationRisk ?? "?"}`
+    )
   })
 
   console.log(`\n[pipeline] Done in ${((Date.now() - pipelineStart) / 1000).toFixed(1)}s`)

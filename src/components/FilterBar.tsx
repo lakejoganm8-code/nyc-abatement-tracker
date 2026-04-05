@@ -96,6 +96,18 @@ export function FilterBar() {
         }}
         min={0}
       />
+
+      {/* Owner search */}
+      <Input
+        type="text"
+        placeholder="Owner search"
+        className="w-40"
+        defaultValue={searchParams.get("owner") ?? ""}
+        onBlur={(e) => updateParam("owner", e.target.value || null)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") updateParam("owner", (e.target as HTMLInputElement).value || null)
+        }}
+      />
     </div>
   )
 }
