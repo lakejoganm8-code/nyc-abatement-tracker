@@ -188,6 +188,7 @@ export interface PropertyFilters {
   buildingClass?: string
   minUnits?: number
   owner?: string        // owner name search (ilike)
+  hideCondo?: boolean   // exclude CONDO_BBL flagged properties
   limit?: number
   offset?: number
 }

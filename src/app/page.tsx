@@ -18,6 +18,7 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
   const minScore = parseFloat(searchParams.minScore ?? "0")
   const minUnits = parseInt(searchParams.minUnits ?? "0") || 0
   const owner = searchParams.owner ?? null
+  const hideCondo = searchParams.hideCondo === "1"
 
   let query = supabase
     .from("property_pipeline")
@@ -36,6 +37,9 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
   }
   if (owner) {
     query = query.ilike("owner_name", `%${owner}%`)
+  }
+  if (hideCondo) {
+    query = query.not("edge_case_flags", "cs", '["CONDO_BBL"]')
   }
 
   const { data, error } = await query

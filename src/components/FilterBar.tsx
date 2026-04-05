@@ -36,6 +36,7 @@ export function FilterBar() {
   const expiresFrom = searchParams.get("expiresFrom") ?? String(CURRENT_YEAR)
   const expiresTo = searchParams.get("expiresTo") ?? String(CURRENT_YEAR)
   const minScore = searchParams.get("minScore") ?? "0"
+  const hideCondo = searchParams.get("hideCondo") === "1"
 
   return (
     <div className="flex flex-wrap items-end gap-3 py-3">
@@ -132,6 +133,17 @@ export function FilterBar() {
           if (e.key === "Enter") updateParam("owner", (e.target as HTMLInputElement).value || null)
         }}
       />
+
+      {/* Hide condos */}
+      <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none pb-0.5">
+        <input
+          type="checkbox"
+          checked={hideCondo}
+          onChange={(e) => updateParam("hideCondo", e.target.checked ? "1" : null)}
+          className="h-4 w-4 rounded border-input accent-primary"
+        />
+        Hide condos
+      </label>
     </div>
   )
 }

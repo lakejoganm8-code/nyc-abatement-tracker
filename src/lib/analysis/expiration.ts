@@ -175,7 +175,10 @@ export function processExemptions(
       status = classifyStatus(window, minMonths, maxMonths)
     }
 
-    const annualExemptAmount = parseFloat(latest.curexmptot ?? "0") || 0
+    // Use most recent non-zero exempt amount — latest year may be 0 during phase-out
+    const annualExemptAmount = bblRows
+      .map((r) => parseFloat(r.curexmptot ?? "0") || 0)
+      .find((v) => v > 0) ?? 0
     const assessedValue = parseNumericField(latest.basetot ?? "0")
     const boroCode = parseBBL(bbl)?.boro ?? latest.boro ?? null
     const borough = boroCode ? (BOROUGH_CODES[boroCode] as Borough) : null

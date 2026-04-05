@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     buildingClass: searchParams.get("buildingClass") ?? undefined,
     minUnits: parseInt(searchParams.get("minUnits") ?? "0") || undefined,
     owner: searchParams.get("owner") ?? undefined,
+    hideCondo: searchParams.get("hideCondo") === "1",
     limit: parseInt(searchParams.get("limit") ?? "100"),
     offset: parseInt(searchParams.get("offset") ?? "0"),
   }
@@ -41,6 +42,10 @@ export async function GET(request: NextRequest) {
 
   if (filters.owner) {
     query = query.ilike("owner_name", `%${filters.owner}%`)
+  }
+
+  if (filters.hideCondo) {
+    query = query.not("edge_case_flags", "cs", '["CONDO_BBL"]')
   }
 
   if (filters.expiresFrom !== undefined) {
