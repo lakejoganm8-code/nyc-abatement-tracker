@@ -29,7 +29,7 @@ import { processExemptions } from "@/lib/analysis/expiration"
 import { getHPDData } from "@/lib/nyc/hpd"
 import { fetchPLUTOData } from "@/lib/nyc/pluto"
 import { fetchACRISBulk } from "@/lib/nyc/acris-bulk"
-import { fetchHCRStabilizedBuildings } from "@/lib/nyc/hcr"
+// HCR dataset (8y9c-t29b) no longer available on NYC Open Data — skipped
 import { fetchEvictionCounts } from "@/lib/nyc/evictions"
 import { scoreAll } from "@/lib/analysis/scoring"
 import { EXEMPTION_CODES_421A, EXEMPTION_CODES_J51 } from "@/lib/analysis/config"
@@ -324,31 +324,21 @@ async function main() {
   await logRun({ dataset: "acris", rowsUpserted: acrisCount, durationMs: Date.now() - t35, status: "success" })
   console.log(`[pipeline] Upserted ${acrisCount} ACRIS records (${acrisMap.size} BBLs matched)`)
 
-  // Step 3.6: HCR stabilization registry
-  console.log(`[pipeline] Fetching HCR stabilization registry...`)
+  // Step 3.6: Stabilization classification (no HCR registry — classify by exemption type)
+  const t36s = Date.now()
+  const stabCount = await upsertStabilization(new Map(), targetRecords)
+  console.log(`[pipeline] Stabilization: ${stabCount} records classified (${Date.now() - t36s}ms)`)
+
+  // Step 3.7: Eviction counts (matched by BBL directly)
+  console.log(`[pipeline] Fetching eviction counts for ${bbls.length} BBLs...`)
   const t36 = Date.now()
-  const hcrMap = await fetchHCRStabilizedBuildings(bbls)
-  const stabCount = await upsertStabilization(hcrMap, targetRecords)
-  await logRun({ dataset: "hcr_stabilization", rowsUpserted: stabCount, durationMs: Date.now() - t36, status: "success" })
-  console.log(`[pipeline] HCR: ${hcrMap.size} stabilized buildings found, ${stabCount} records updated`)
-
-  // Step 3.7: Eviction counts (via HPD registration IDs)
-  const registrationIds = Array.from(hpdMap.values())
-    .map((h) => h.registrationId)
-    .filter((id): id is string => id !== null)
-
-  if (registrationIds.length > 0) {
-    console.log(`[pipeline] Fetching eviction counts for ${registrationIds.length} registration IDs...`)
-    const t37 = Date.now()
-    const evictionMap = await fetchEvictionCounts(registrationIds)
-    // Merge eviction counts back into hpdMap
-    for (const [bbl, hpd] of hpdMap) {
-      if (hpd.registrationId && evictionMap.has(hpd.registrationId)) {
-        hpdMap.set(bbl, { ...hpd, evictionCount12mo: evictionMap.get(hpd.registrationId) ?? 0 })
-      }
+  const evictionMap = await fetchEvictionCounts(bbls)
+  for (const [bbl, hpd] of hpdMap) {
+    if (evictionMap.has(bbl)) {
+      hpdMap.set(bbl, { ...hpd, evictionCount12mo: evictionMap.get(bbl) ?? 0 })
     }
-    console.log(`[pipeline] Evictions: ${evictionMap.size} buildings with filings in last 12mo (${Date.now() - t37}ms)`)
   }
+  console.log(`[pipeline] Evictions: ${evictionMap.size} buildings with filings in last 12mo (${Date.now() - t36}ms)`)
 
   // Upsert HPD + PLUTO (after eviction counts merged in)
   const [hpdCount, plutoCount] = await Promise.all([

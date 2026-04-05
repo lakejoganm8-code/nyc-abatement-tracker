@@ -10,8 +10,7 @@ export const DATASETS = {
   ACRIS_LEGALS: "8h5j-fqxa",       // ACRIS Real Property Legals (BBL → doc_id)
   ACRIS_MASTER: "bnx9-e6tj",       // ACRIS Real Property Master (doc_id → details)
   ACRIS_PARTIES: "636b-3b5g",      // ACRIS Real Property Parties (doc_id → names)
-  HCR_STABILIZED: "8y9c-t29b",     // DHCR Rent Stabilized Building List
-  EVICTIONS: "6z8x-tj6h",          // NYC Housing Court Evictions (match by HPD buildingid)
+  EVICTIONS: "6z8x-wfk4",          // NYC Marshal Evictions (has bbl column directly)
   PLUTO: "64uk-42ks",              // MapPLUTO (zoning, FAR, coordinates, year built)
 } as const
 

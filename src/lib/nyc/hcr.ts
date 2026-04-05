@@ -26,7 +26,7 @@ export async function fetchHCRStabilizedBuildings(
     const waveResults = await Promise.all(
       wave.map((chunk) => {
         const where = buildBBLOrClause(chunk)
-        return client.fetchAll<Record<string, string>>(DATASETS.HCR_STABILIZED, {
+        return client.fetchAll<Record<string, string>>("8y9c-t29b", {
           $where: where,
           $select: "boroid,block,lot",
           $limit: 10000,

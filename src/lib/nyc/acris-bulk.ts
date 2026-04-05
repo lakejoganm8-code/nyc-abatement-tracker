@@ -1,30 +1,28 @@
 /**
  * Bulk ACRIS fetcher for the weekly pipeline.
  *
- * Fetches deed + mortgage data for a list of BBLs using batched Socrata queries.
  * Strategy:
  *   1. Legals (8h5j-fqxa): OR-clause on borough/block/lot → collect doc_ids per BBL
- *   2. Master (bnx9-e6tj): IN clause on doc_ids → amounts, dates, doc_types
- *   3. Parties (636b-3b5g): IN clause on doc_ids → lender name (type='2'), owner name (type='1')
+ *      NOTE: Legals has NO doc_type column — filter by doc_type via Master
+ *   2. Master (bnx9-e6tj): IN clause on doc_ids → doc_type, amounts, dates
+ *      Filter to deed/mortgage types here.
+ *   3. Parties (636b-3b5g): IN clause on relevant doc_ids → lender (type='2'), owner (type='1')
  *
  * Returns Map<bbl, ACRISRecord>. BBLs with no ACRIS records are omitted.
- *
- * For on-demand per-property fetch, use acris.ts instead.
  */
 
 import { getSocrataClient } from "./socrata"
 import { DATASETS, ACRIS_DEED_TYPES, ACRIS_MORTGAGE_TYPES } from "@/lib/analysis/config"
-import { buildACRISOrClause, parseBBLParts, rowToBBL } from "./bbl-utils"
+import { buildACRISOrClause, rowToBBL } from "./bbl-utils"
 import type { ACRISRecord } from "@/types"
 
-const LEGALS_CHUNK = 50    // BBLs per Legals OR-clause request (POST avoids URL limits)
-const MASTER_CHUNK = 200   // doc_ids per Master IN clause
-const PARTIES_CHUNK = 200  // doc_ids per Parties IN clause
-const CONCURRENCY = 5      // parallel Legals requests per wave
+const LEGALS_CHUNK = 40    // BBLs per Legals OR-clause request (~2KB URL, well under limit)
+const MASTER_CHUNK = 150   // doc_ids per Master IN clause
+const PARTIES_CHUNK = 150  // doc_ids per Parties IN clause
+const CONCURRENCY = 5      // parallel requests per wave
 
 interface RawLegal {
   document_id: string
-  doc_type: string
   borough: string
   block: string
   lot: string
@@ -33,7 +31,7 @@ interface RawLegal {
 interface RawMaster {
   document_id: string
   doc_type: string
-  doc_amount: string
+  document_amt: string   // ACRIS Master uses "document_amt", not "document_amt"
   recorded_datetime: string
 }
 
@@ -44,40 +42,37 @@ interface RawParty {
 }
 
 export async function fetchACRISBulk(bbls: string[]): Promise<Map<string, ACRISRecord>> {
+  if (bbls.length === 0) return new Map()
+
   const client = getSocrataClient()
   const now = new Date().toISOString()
 
-  // ── Step 1: Legals — get doc_ids for all BBLs ────────────────────────────
-  const targetDocTypes = [...ACRIS_DEED_TYPES, ...ACRIS_MORTGAGE_TYPES]
-  const docTypeList = targetDocTypes.map((t) => `'${t}'`).join(",")
+  // ── Step 1: Legals — get all doc_ids for each BBL ───────────────────────────
+  // Legals dataset has NO doc_type column; we filter by doc_type in Step 2 (Master)
+  const bblToDocIds = new Map<string, string[]>()
 
-  // Map BBL → doc_ids
-  const bblToDocIds = new Map<string, { docId: string; docType: string }[]>()
+  const chunks: string[][] = []
+  for (let i = 0; i < bbls.length; i += LEGALS_CHUNK) {
+    chunks.push(bbls.slice(i, i + LEGALS_CHUNK))
+  }
 
-  // Process in waves of CONCURRENCY chunks
-  for (let i = 0; i < bbls.length; i += LEGALS_CHUNK * CONCURRENCY) {
-    const wave = bbls.slice(i, i + LEGALS_CHUNK * CONCURRENCY)
-    const chunks: string[][] = []
-    for (let j = 0; j < wave.length; j += LEGALS_CHUNK) {
-      chunks.push(wave.slice(j, j + LEGALS_CHUNK))
-    }
-
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    const wave = chunks.slice(i, i + CONCURRENCY)
     const waveResults = await Promise.all(
-      chunks.map(async (chunk) => {
+      wave.map((chunk) => {
         const whereClause = buildACRISOrClause(chunk)
-        return client.fetchAllPost<RawLegal>(DATASETS.ACRIS_LEGALS, {
-          $where: `(${whereClause}) AND doc_type IN (${docTypeList})`,
-          $select: "document_id,doc_type,borough,block,lot",
+        return client.fetchAll<RawLegal>(DATASETS.ACRIS_LEGALS, {
+          $where: whereClause,
+          $select: "document_id,borough,block,lot",
         })
       })
     )
 
     for (const rows of waveResults) {
       for (const row of rows) {
-        // Reconstruct BBL from borough/block/lot (ACRIS uses 'borough' not 'boroid')
         const bbl = rowToBBL(row as unknown as Record<string, string>, "borough")
         if (!bblToDocIds.has(bbl)) bblToDocIds.set(bbl, [])
-        bblToDocIds.get(bbl)!.push({ docId: row.document_id, docType: row.doc_type })
+        bblToDocIds.get(bbl)!.push(row.document_id)
       }
     }
   }
@@ -85,64 +80,92 @@ export async function fetchACRISBulk(bbls: string[]): Promise<Map<string, ACRISR
   if (bblToDocIds.size === 0) return new Map()
 
   // Collect all unique doc_ids
-  const allDocIds = [...new Set([...bblToDocIds.values()].flatMap((d) => d.map((x) => x.docId)))]
+  const allDocIds = [...new Set([...bblToDocIds.values()].flat())]
 
-  // ── Step 2: Master — get amounts + dates ─────────────────────────────────
+  // ── Step 2: Master — get doc_type, amounts, dates ────────────────────────────
+  // Filter to only deed + mortgage types here
+  const targetDocTypes = [...ACRIS_DEED_TYPES, ...ACRIS_MORTGAGE_TYPES]
+  const docTypeList = targetDocTypes.map((t) => `'${t}'`).join(",")
   const masterByDocId = new Map<string, RawMaster>()
 
+  // Master column is "document_amt" not "document_amt"
+  // Filter by doc_type prefix in code (DEED*, MTGE, AGMT, MORTGAGE) rather than SQL IN
+  // because exact strings like "DEED, BARGAIN AND SALE" don't match ACRIS types like "DEED, TS"
+  const masterChunks: string[][] = []
   for (let i = 0; i < allDocIds.length; i += MASTER_CHUNK) {
-    const chunk = allDocIds.slice(i, i + MASTER_CHUNK)
-    const inClause = chunk.map((id) => `'${id}'`).join(",")
-    const rows = await client.fetchAllPost<RawMaster>(DATASETS.ACRIS_MASTER, {
-      $where: `document_id IN (${inClause})`,
-      $select: "document_id,doc_type,doc_amount,recorded_datetime",
-      $order: "recorded_datetime DESC",
-    })
-    for (const row of rows) {
-      // Keep only the first (most recent) record per doc_id
-      if (!masterByDocId.has(row.document_id)) {
-        masterByDocId.set(row.document_id, row)
+    masterChunks.push(allDocIds.slice(i, i + MASTER_CHUNK))
+  }
+
+  for (let i = 0; i < masterChunks.length; i += CONCURRENCY) {
+    const wave = masterChunks.slice(i, i + CONCURRENCY)
+    const waveResults = await Promise.all(
+      wave.map((chunk) => {
+        const inClause = chunk.map((id) => `'${id}'`).join(",")
+        return client.fetchAll<RawMaster>(DATASETS.ACRIS_MASTER, {
+          $where: `document_id IN (${inClause})`,
+          $select: "document_id,doc_type,document_amt,recorded_datetime",
+          $order: "recorded_datetime DESC",
+        })
+      })
+    )
+
+    for (const rows of waveResults) {
+      for (const row of rows) {
+        const upper = row.doc_type?.toUpperCase() ?? ""
+        const isDeed = upper.startsWith("DEED") || upper === "DEEDO"
+        const isMortgage = upper === "MTGE" || upper === "AGMT" || upper === "MORTGAGE" || upper.startsWith("MORTGAGE")
+        if (!isDeed && !isMortgage) continue
+        if (!masterByDocId.has(row.document_id)) {
+          masterByDocId.set(row.document_id, row)
+        }
       }
     }
   }
 
-  // ── Step 3: Parties — get lender + owner names ───────────────────────────
-  // Collect deed doc_ids (need grantee = owner) and mortgage doc_ids (need lender)
-  const deedDocIds: string[] = []
-  const mortgageDocIds: string[] = []
-
-  for (const [, docs] of bblToDocIds) {
-    for (const { docId, docType } of docs) {
-      const upper = docType.toUpperCase()
-      if (ACRIS_DEED_TYPES.some((t) => upper.startsWith(t.split(",")[0].trim()))) {
-        deedDocIds.push(docId)
-      } else if (ACRIS_MORTGAGE_TYPES.some((t) => upper.startsWith(t.split(",")[0].trim()))) {
-        mortgageDocIds.push(docId)
-      }
-    }
+  // Filter bblToDocIds to only keep doc_ids that appear in Master (i.e., are deed/mortgage)
+  const bblToRelevantDocIds = new Map<string, { docId: string; docType: string }[]>()
+  for (const [bbl, docIds] of bblToDocIds) {
+    const relevant = docIds
+      .filter((id) => masterByDocId.has(id))
+      .map((id) => ({ docId: id, docType: masterByDocId.get(id)!.doc_type }))
+    if (relevant.length > 0) bblToRelevantDocIds.set(bbl, relevant)
   }
 
-  const uniquePartyDocIds = [...new Set([...deedDocIds, ...mortgageDocIds])]
+  if (bblToRelevantDocIds.size === 0) return new Map()
+
+  // ── Step 3: Parties — lender + owner names ───────────────────────────────────
+  const relevantDocIds = [...new Set([...bblToRelevantDocIds.values()].flatMap((d) => d.map((x) => x.docId)))]
   const partiesByDocId = new Map<string, RawParty[]>()
 
-  for (let i = 0; i < uniquePartyDocIds.length; i += PARTIES_CHUNK) {
-    const chunk = uniquePartyDocIds.slice(i, i + PARTIES_CHUNK)
-    const inClause = chunk.map((id) => `'${id}'`).join(",")
-    const rows = await client.fetchAllPost<RawParty>(DATASETS.ACRIS_PARTIES, {
-      $where: `document_id IN (${inClause}) AND party_type IN ('1','2')`,
-      $select: "document_id,party_type,name",
-    })
-    for (const row of rows) {
-      if (!partiesByDocId.has(row.document_id)) partiesByDocId.set(row.document_id, [])
-      partiesByDocId.get(row.document_id)!.push(row)
+  const partyChunks: string[][] = []
+  for (let i = 0; i < relevantDocIds.length; i += PARTIES_CHUNK) {
+    partyChunks.push(relevantDocIds.slice(i, i + PARTIES_CHUNK))
+  }
+
+  for (let i = 0; i < partyChunks.length; i += CONCURRENCY) {
+    const wave = partyChunks.slice(i, i + CONCURRENCY)
+    const waveResults = await Promise.all(
+      wave.map((chunk) => {
+        const inClause = chunk.map((id) => `'${id}'`).join(",")
+        return client.fetchAll<RawParty>(DATASETS.ACRIS_PARTIES, {
+          $where: `document_id IN (${inClause}) AND party_type IN ('1','2')`,
+          $select: "document_id,party_type,name",
+        })
+      })
+    )
+
+    for (const rows of waveResults) {
+      for (const row of rows) {
+        if (!partiesByDocId.has(row.document_id)) partiesByDocId.set(row.document_id, [])
+        partiesByDocId.get(row.document_id)!.push(row)
+      }
     }
   }
 
-  // ── Assemble results per BBL ─────────────────────────────────────────────
+  // ── Assemble results per BBL ─────────────────────────────────────────────────
   const result = new Map<string, ACRISRecord>()
 
-  for (const [bbl, docs] of bblToDocIds) {
-    // Split into deeds and mortgages
+  for (const [bbl, docs] of bblToRelevantDocIds) {
     const deedDocs = docs.filter(({ docType }) =>
       ACRIS_DEED_TYPES.some((t) => docType.toUpperCase().startsWith(t.split(",")[0].trim()))
     )
@@ -160,12 +183,11 @@ export async function fetchACRISBulk(bbls: string[]): Promise<Map<string, ACRISR
 
     const deedMaster = latestDeedDocId ? masterByDocId.get(latestDeedDocId) : null
     const lastDeedDate = deedMaster?.recorded_datetime?.split("T")[0] ?? null
-    const lastSalePrice = deedMaster?.doc_amount ? parseFloat(deedMaster.doc_amount) || null : null
+    const lastSalePrice = deedMaster?.document_amt ? parseFloat(deedMaster.document_amt) || null : null
     const ownershipYears = lastDeedDate
       ? new Date().getFullYear() - new Date(lastDeedDate).getFullYear()
       : null
 
-    // Owner name from deed grantee (party_type='1')
     const deedParties = latestDeedDocId ? (partiesByDocId.get(latestDeedDocId) ?? []) : []
     const ownerName = deedParties.find((p) => p.party_type === "1")?.name ?? null
 
@@ -178,12 +200,11 @@ export async function fetchACRISBulk(bbls: string[]): Promise<Map<string, ACRISR
       )[0]?.docId ?? null
 
     const mortgageMaster = latestMortgageDocId ? masterByDocId.get(latestMortgageDocId) : null
-    const lastMortgageAmount = mortgageMaster?.doc_amount
-      ? parseFloat(mortgageMaster.doc_amount) || null
+    const lastMortgageAmount = mortgageMaster?.document_amt
+      ? parseFloat(mortgageMaster.document_amt) || null
       : null
     const mortgageDate = mortgageMaster?.recorded_datetime?.split("T")[0] ?? null
 
-    // Lender name from mortgage parties (party_type='2')
     const mortgageParties = latestMortgageDocId
       ? (partiesByDocId.get(latestMortgageDocId) ?? [])
       : []
