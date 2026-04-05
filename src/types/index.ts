@@ -182,12 +182,12 @@ export interface PropertyRecord {
 
 export interface PropertyFilters {
   borough?: Borough | "all"
-  minMonths?: number   // default 0
-  maxMonths?: number   // default 36
-  minScore?: number    // default 0
+  expiresFrom?: number  // expiration_year >= (default: current year)
+  expiresTo?: number    // expiration_year <= (default: current year for YTD)
+  minScore?: number     // default 0
   buildingClass?: string
   minUnits?: number
-  owner?: string       // owner name search (ilike)
+  owner?: string        // owner name search (ilike)
   limit?: number
   offset?: number
 }

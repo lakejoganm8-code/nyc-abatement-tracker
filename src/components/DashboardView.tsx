@@ -1,6 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
+import { useRouter } from "next/navigation"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Card, CardContent } from "@/components/ui/card"
 import { PropertyTable, type PropertyRow } from "@/components/PropertyTable"
@@ -40,6 +41,7 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({ data, searchParams }: DashboardViewProps) {
+  const router = useRouter()
   const avgScore = data.length
     ? Math.round(data.reduce((s, p) => s + p.distress_score, 0) / data.length)
     : 0
@@ -111,7 +113,7 @@ export function DashboardView({ data, searchParams }: DashboardViewProps) {
           <div className="h-[600px] rounded-lg overflow-hidden border">
             <PropertyMap
               data={data}
-              onSelect={(bbl) => window.open(`/property/${bbl}`, "_blank")}
+              onSelect={(bbl) => router.push(`/property/${bbl}`)}
             />
           </div>
         </TabsContent>

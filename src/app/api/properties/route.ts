@@ -6,10 +6,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const supabase = await createClient()
 
+  const currentYear = new Date().getFullYear()
+
   const filters: PropertyFilters = {
     borough: (searchParams.get("borough") ?? "all") as PropertyFilters["borough"],
-    minMonths: parseInt(searchParams.get("minMonths") ?? "0"),
-    maxMonths: parseInt(searchParams.get("maxMonths") ?? "36"),
+    expiresFrom: parseInt(searchParams.get("expiresFrom") ?? String(currentYear)) || currentYear,
+    expiresTo: parseInt(searchParams.get("expiresTo") ?? String(currentYear)) || currentYear,
     minScore: parseFloat(searchParams.get("minScore") ?? "0"),
     buildingClass: searchParams.get("buildingClass") ?? undefined,
     minUnits: parseInt(searchParams.get("minUnits") ?? "0") || undefined,
@@ -41,9 +43,12 @@ export async function GET(request: NextRequest) {
     query = query.ilike("owner_name", `%${filters.owner}%`)
   }
 
-  if (filters.maxMonths !== undefined) {
-    const maxYear = new Date().getFullYear() + (filters.maxMonths / 12)
-    query = query.lte("expiration_year", Math.ceil(maxYear))
+  if (filters.expiresFrom !== undefined) {
+    query = query.gte("expiration_year", filters.expiresFrom)
+  }
+
+  if (filters.expiresTo !== undefined) {
+    query = query.lte("expiration_year", filters.expiresTo)
   }
 
   const { data, error, count } = await query

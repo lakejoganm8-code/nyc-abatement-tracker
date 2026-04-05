@@ -10,6 +10,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
+const CURRENT_YEAR = new Date().getFullYear()
 
 export function FilterBar() {
   const router = useRouter()
@@ -30,11 +33,12 @@ export function FilterBar() {
   )
 
   const borough = searchParams.get("borough") ?? "all"
-  const maxMonths = searchParams.get("maxMonths") ?? "36"
+  const expiresFrom = searchParams.get("expiresFrom") ?? String(CURRENT_YEAR)
+  const expiresTo = searchParams.get("expiresTo") ?? String(CURRENT_YEAR)
   const minScore = searchParams.get("minScore") ?? "0"
 
   return (
-    <div className="flex flex-wrap items-center gap-3 py-3">
+    <div className="flex flex-wrap items-end gap-3 py-3">
       {/* Borough */}
       <Select
         value={borough}
@@ -53,20 +57,40 @@ export function FilterBar() {
         </SelectContent>
       </Select>
 
-      {/* Expiration window */}
-      <Select
-        value={maxMonths}
-        onValueChange={(v) => updateParam("maxMonths", v)}
-      >
-        <SelectTrigger className="w-44">
-          <SelectValue placeholder="Expiration window" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="12">Next 12 months</SelectItem>
-          <SelectItem value="24">Next 24 months</SelectItem>
-          <SelectItem value="36">Next 36 months</SelectItem>
-        </SelectContent>
-      </Select>
+      {/* Expiration year range */}
+      <div className="flex items-end gap-1.5">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Expires from</Label>
+          <Input
+            type="number"
+            className="w-24"
+            value={expiresFrom}
+            min={2020}
+            max={2060}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v.length === 4) updateParam("expiresFrom", v)
+            }}
+            onBlur={(e) => updateParam("expiresFrom", e.target.value || String(CURRENT_YEAR))}
+          />
+        </div>
+        <span className="pb-2 text-muted-foreground text-sm">–</span>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">to</Label>
+          <Input
+            type="number"
+            className="w-24"
+            value={expiresTo}
+            min={2020}
+            max={2060}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v.length === 4) updateParam("expiresTo", v)
+            }}
+            onBlur={(e) => updateParam("expiresTo", e.target.value || String(CURRENT_YEAR))}
+          />
+        </div>
+      </div>
 
       {/* Min distress score */}
       <Select

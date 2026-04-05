@@ -11,17 +11,20 @@ interface PageProps {
 async function PropertiesList({ searchParams }: { searchParams: Record<string, string> }) {
   const supabase = await createClient()
 
+  const currentYear = new Date().getFullYear()
   const borough = searchParams.borough
-  const maxMonths = parseInt(searchParams.maxMonths ?? "36")
+  const expiresFrom = parseInt(searchParams.expiresFrom ?? String(currentYear)) || currentYear
+  const expiresTo = parseInt(searchParams.expiresTo ?? String(currentYear)) || currentYear
   const minScore = parseFloat(searchParams.minScore ?? "0")
   const minUnits = parseInt(searchParams.minUnits ?? "0") || 0
-  const maxYear = Math.ceil(new Date().getFullYear() + maxMonths / 12)
+  const owner = searchParams.owner ?? null
 
   let query = supabase
     .from("property_pipeline")
     .select("*")
     .gte("distress_score", minScore)
-    .lte("expiration_year", maxYear)
+    .gte("expiration_year", expiresFrom)
+    .lte("expiration_year", expiresTo)
     .order("distress_score", { ascending: false })
     .limit(500)
 
@@ -30,6 +33,9 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
   }
   if (minUnits > 0) {
     query = query.gte("total_units", minUnits)
+  }
+  if (owner) {
+    query = query.ilike("owner_name", `%${owner}%`)
   }
 
   const { data, error } = await query
