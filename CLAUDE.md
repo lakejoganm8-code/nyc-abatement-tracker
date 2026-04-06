@@ -160,6 +160,18 @@ vercel --prod                  # deploy
 - `CONDO_BBL` — BBL lot suffix ≥ 0001 (condo unit, not whole building)
 - `MISSING_START_YEAR` — can't compute expiration without start year
 
+## Next Phase Plan
+See plan file: `/home/jake/.claude/plans/snappy-enchanting-lantern.md`
+
+**TL;DR of next steps (in priority order):**
+- **Phase A** — Collapse condo units to parent lot (dedup 60-70% noise from dashboard)
+- **Phase B** — HPD Registration Contacts (`feu5-w2e2`): adds owner/agent phone + address — the "who to call" layer
+- **Phase C** — Tax liens (`9rz4-mjek`) + DOB violations (`3h2n-5cm9`) + Housing Court filings (`59kj-x8nc`) — richer distress scoring
+- **Phase D** — DOF Property Assessment (`8y4t-faws`) — better market value → better LTV scoring
+- **Phase E** — NY DOS LLC entity lookup — helps investors research ownership chain
+
+Key known gaps: ~50% ACRIS null rate (LLC/cash/pre-1966 deals), no beneficial owner data (NY LLC Transparency Act kept confidential), HCR dataset deprecated.
+
 ## Implementation Progress
 - [x] Step 1: GitHub repo created + Next.js scaffolded
 - [x] Step 2: Supabase project + migration applied
@@ -176,13 +188,18 @@ vercel --prod                  # deploy
 - [x] Step 13: Vercel deploy + env vars set
 - [x] Step 14: Map view (PropertyMap.tsx + DashboardView.tsx with tab toggle)
 - [x] Step 15: Pipeline schema fixes (Socrata field names, BBL normalization, batch upserts)
-- [ ] Step 16: DB migration — feature_expansion (new columns + view rebuild)
-- [ ] Step 17: bbl-utils.ts — shared BBL parsing utilities
-- [ ] Step 18: acris-bulk.ts — bulk ACRIS fetcher (fixes empty-map scoring bug)
-- [ ] Step 19: hcr.ts — HCR rent stabilization registry
-- [ ] Step 20: evictions.ts — NYC eviction counts
-- [ ] Step 21: rent-upside.ts — AMI tier, rent upside, deregulation risk logic
-- [ ] Step 22: scoring.ts — add pluto param + 3 new computed fields
-- [ ] Step 23: pipeline.ts — wire all new fetchers, fix scoreAll() empty map bug
-- [ ] Step 24: API + frontend — new columns, owner filter, new table columns, detail cards
-- [ ] Step 25: CLAUDE.md — updated (this file)
+- [x] Step 16: DB migration — feature_expansion (new columns + view rebuild)
+- [x] Step 17: bbl-utils.ts — shared BBL parsing utilities
+- [x] Step 18: acris-bulk.ts — bulk ACRIS fetcher (fixes empty-map scoring bug)
+- [x] Step 19: HCR skipped — dataset deprecated on NYC Open Data
+- [x] Step 20: evictions.ts — NYC eviction counts (dataset 6z8x-wfk4, direct BBL match)
+- [x] Step 21: rent-upside.ts — AMI tier, rent upside, deregulation risk logic
+- [x] Step 22: scoring.ts — pluto param + 3 new computed fields
+- [x] Step 23: pipeline.ts — ACRIS bulk wired, ACRIS before HPD, incremental batch writes
+- [x] Step 24: API + frontend — owner filter, new table columns, slide-over panel, dark UI
+- [x] Step 25: CLAUDE.md — updated (this file)
+- [ ] Phase A: Condo deduplication — collapse condo units to parent lot
+- [ ] Phase B: HPD Registration Contacts — owner/agent contact info
+- [ ] Phase C: Tax liens + DOB violations + housing court filings
+- [ ] Phase D: DOF property assessment — better market value
+- [ ] Phase E: NY DOS LLC entity lookup
