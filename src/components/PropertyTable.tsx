@@ -1,24 +1,18 @@
 "use client"
 
-import { useRouter } from "next/navigation"
 import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
+  getPaginationRowModel,
   flexRender,
   createColumnHelper,
   type SortingState,
 } from "@tanstack/react-table"
 import { useState } from "react"
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { ScoreBadge } from "@/components/ScoreBadge"
-import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
+import { ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// Shape of rows from property_pipeline view
 export interface PropertyRow {
   bbl: string
   address: string
@@ -38,14 +32,12 @@ export interface PropertyRow {
   edge_case_flags: string[]
   latitude: number | null
   longitude: number | null
-  // Financial
   owner_name: string | null
   last_deed_date: string | null
   last_sale_price: number | null
   last_mortgage_amount: number | null
   ownership_years: number | null
   lender_name: string | null
-  // Enrichment
   estimated_annual_rent_upside: number | null
   deregulation_risk: "high" | "medium" | "low" | null
   is_rent_stabilized: boolean | null
@@ -54,25 +46,22 @@ export interface PropertyRow {
 
 const col = createColumnHelper<PropertyRow>()
 
-const STATUS_COLORS: Record<string, string> = {
-  APPROACHING: "text-destructive",
-  IN_PHASE_OUT: "text-amber-600 dark:text-amber-400",
-  FUTURE: "text-muted-foreground",
-  EXPIRED: "text-muted-foreground line-through",
+const CURRENT_YEAR = new Date().getFullYear()
+
+const BOROUGH_SHORT: Record<string, string> = {
+  manhattan:    "MN",
+  brooklyn:     "BK",
+  bronx:        "BX",
+  queens:       "QN",
+  staten_island:"SI",
 }
 
-const BOROUGH_LABELS: Record<string, string> = {
-  manhattan: "Manhattan",
-  brooklyn: "Brooklyn",
-  bronx: "Bronx",
-  queens: "Queens",
-  staten_island: "Staten Island",
-}
-
-const DEREG_COLORS: Record<string, string> = {
-  high: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  medium: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+function urgencyClass(row: PropertyRow): string {
+  const yr = row.expiration_year
+  if (!yr) return "urgency-none"
+  if (yr <= CURRENT_YEAR + 1) return "urgency-critical"
+  if (yr <= CURRENT_YEAR + 2) return "urgency-high"
+  return "urgency-medium"
 }
 
 function fmt$(n: number | null): string {
@@ -87,18 +76,34 @@ function fmtUpside(n: number | null): string {
   return fmt$(n)
 }
 
-const AMI_TIER_COLORS: Record<string, string> = {
-  "60%": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  "80%": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-  "market": "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-  "none": "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500",
+function ScorePill({ score }: { score: number }) {
+  const color =
+    score >= 75 ? "text-red-400" :
+    score >= 50 ? "text-amber-400" :
+    "text-muted-foreground"
+
+  const barColor =
+    score >= 75 ? "bg-red-500/70" :
+    score >= 50 ? "bg-amber-500/70" :
+    "bg-muted-foreground/30"
+
+  return (
+    <div className="flex items-center gap-2 w-16">
+      <span className={cn("font-mono text-xs font-semibold tabular-nums w-7 text-right", color)}>
+        {score.toFixed(0)}
+      </span>
+      <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+        <div className={cn("h-full rounded-full", barColor)} style={{ width: `${score}%` }} />
+      </div>
+    </div>
+  )
 }
 
 const COLUMNS = [
   col.accessor("distress_score", {
     header: "Score",
-    cell: (info) => <ScoreBadge score={info.getValue()} size="sm" />,
     sortDescFirst: true,
+    cell: (info) => <ScorePill score={info.getValue()} />,
   }),
   col.accessor("address", {
     header: "Address",
@@ -106,17 +111,15 @@ const COLUMNS = [
       const row = info.row.original
       const tier = row.ami_tier
       return (
-        <div className="max-w-[220px]">
-          <span className="truncate block font-medium text-sm">
-            {info.getValue() || row.bbl}
-          </span>
-          <div className="flex items-center gap-1 mt-0.5">
+        <div className="min-w-[200px] max-w-[260px]">
+          <div className="truncate text-xs font-medium text-foreground">{info.getValue() || row.bbl}</div>
+          <div className="flex items-center gap-1.5 mt-0.5">
             {row.benefit_type && (
-              <span className="text-xs text-muted-foreground truncate">{row.benefit_type}</span>
+              <span className="text-[10px] text-muted-foreground truncate">{row.benefit_type}</span>
             )}
             {tier && tier !== "none" && (
-              <span className={cn("text-[10px] px-1 py-0 rounded font-medium", AMI_TIER_COLORS[tier] ?? "")}>
-                {tier === "market" ? "Market" : `${tier} AMI`}
+              <span className="text-[10px] px-1 rounded bg-sky-950/60 text-sky-400 font-mono">
+                {tier === "market" ? "MKT" : tier}
               </span>
             )}
           </div>
@@ -125,90 +128,114 @@ const COLUMNS = [
     },
   }),
   col.accessor("borough", {
-    header: "Borough",
-    cell: (info) => BOROUGH_LABELS[info.getValue()] ?? info.getValue(),
+    header: "Boro",
+    cell: (info) => (
+      <span className="font-mono text-[11px] text-muted-foreground">
+        {BOROUGH_SHORT[info.getValue()] ?? info.getValue()}
+      </span>
+    ),
   }),
   col.accessor("expiration_year", {
     header: "Expires",
     cell: (info) => {
-      const year = info.getValue()
+      const yr = info.getValue()
       const status = info.row.original.expiration_status
+      const urgent = yr && yr <= CURRENT_YEAR + 1
+      const soon = yr && yr <= CURRENT_YEAR + 2
       return (
-        <span className={cn("font-medium", status ? STATUS_COLORS[status] : "")}>
-          {year ?? "—"}
+        <span className={cn(
+          "font-mono text-xs font-semibold tabular-nums",
+          urgent ? "text-red-400" : soon ? "text-amber-400" : "text-emerald-400"
+        )}>
+          {yr ?? "—"}
         </span>
       )
     },
   }),
   col.accessor("expiration_status", {
     header: "Status",
+    enableSorting: false,
     cell: (info) => {
       const s = info.getValue()
-      if (!s) return "—"
+      if (!s) return <span className="text-muted-foreground text-[10px]">—</span>
       const label = s === "IN_PHASE_OUT" ? "Phase-Out" : s.charAt(0) + s.slice(1).toLowerCase()
+      const cls =
+        s === "APPROACHING" ? "text-red-400 bg-red-950/40" :
+        s === "IN_PHASE_OUT" ? "text-amber-400 bg-amber-950/40" :
+        "text-muted-foreground bg-muted/40"
       return (
-        <span className={cn("text-xs font-medium", STATUS_COLORS[s] ?? "")}>
+        <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", cls)}>
           {label}
         </span>
       )
     },
   }),
   col.accessor("annual_exempt_amount", {
-    header: "Annual Exempt",
-    cell: (info) => (
-      <span className="tabular-nums">{fmt$(info.getValue())}</span>
-    ),
-  }),
-  col.accessor("estimated_annual_rent_upside", {
-    header: "Rent Upside/yr",
+    header: "Exempt/yr",
     sortDescFirst: true,
     cell: (info) => (
-      <span className={cn("tabular-nums", info.getValue() ? "text-emerald-700 dark:text-emerald-400 font-medium" : "text-muted-foreground")}>
-        {fmtUpside(info.getValue())}
+      <span className="font-mono text-xs tabular-nums text-foreground/80">
+        {fmt$(info.getValue())}
       </span>
     ),
   }),
+  col.accessor("estimated_annual_rent_upside", {
+    header: "Upside/yr",
+    sortDescFirst: true,
+    cell: (info) => {
+      const v = info.getValue()
+      return (
+        <span className={cn("font-mono text-xs tabular-nums", v ? "text-emerald-400 font-semibold" : "text-muted-foreground")}>
+          {fmtUpside(v)}
+        </span>
+      )
+    },
+  }),
   col.accessor("deregulation_risk", {
-    header: "Dereg Risk",
+    header: "Dereg",
     enableSorting: false,
     cell: (info) => {
-      const risk = info.getValue()
-      if (!risk) return <span className="text-muted-foreground text-xs">—</span>
+      const r = info.getValue()
+      if (!r) return <span className="text-muted-foreground text-[10px]">—</span>
+      const cls =
+        r === "high"   ? "text-red-400 bg-red-950/50" :
+        r === "medium" ? "text-amber-400 bg-amber-950/50" :
+        "text-emerald-400 bg-emerald-950/50"
       return (
-        <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium", DEREG_COLORS[risk])}>
-          {risk.charAt(0).toUpperCase() + risk.slice(1)}
+        <span className={cn("text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase", cls)}>
+          {r}
         </span>
       )
     },
   }),
   col.accessor("total_units", {
     header: "Units",
-    cell: (info) => info.getValue() ?? "—",
+    cell: (info) => (
+      <span className="font-mono text-xs tabular-nums text-foreground/70">
+        {info.getValue() ?? "—"}
+      </span>
+    ),
   }),
   col.accessor("violation_count_12mo", {
-    header: "Violations",
+    header: "Viol.",
+    sortDescFirst: true,
     cell: (info) => {
       const v = info.getValue()
       return (
-        <span className={v >= 10 ? "text-destructive font-semibold" : ""}>
+        <span className={cn("font-mono text-xs tabular-nums", v >= 10 ? "text-red-400 font-semibold" : v > 0 ? "text-amber-400/80" : "text-muted-foreground")}>
           {v}
         </span>
       )
     },
   }),
-  col.accessor("building_class", {
-    header: "Class",
-    cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
-  }),
-  col.accessor("edge_case_flags", {
-    header: "Flags",
+  col.accessor("owner_name", {
+    header: "Owner",
     enableSorting: false,
     cell: (info) => {
-      const flags = info.getValue() ?? []
-      if (!flags.length) return null
+      const name = info.getValue()
       return (
-        <span className="text-xs text-muted-foreground">
-          {flags.join(", ")}
+        <span className="text-[11px] text-muted-foreground truncate max-w-[140px] block">
+          {name ?? "—"}
         </span>
       )
     },
@@ -217,69 +244,148 @@ const COLUMNS = [
 
 interface PropertyTableProps {
   data: PropertyRow[]
+  onRowClick: (bbl: string) => void
 }
 
-export function PropertyTable({ data }: PropertyTableProps) {
-  const router = useRouter()
+const PAGE_SIZE = 50
+
+export function PropertyTable({ data, onRowClick }: PropertyTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "distress_score", desc: true },
   ])
+  const [pageIndex, setPageIndex] = useState(0)
 
   const table = useReactTable({
     data,
     columns: COLUMNS,
-    state: { sorting },
-    onSortingChange: setSorting,
+    state: { sorting, pagination: { pageIndex, pageSize: PAGE_SIZE } },
+    onSortingChange: (updater) => { setSorting(updater); setPageIndex(0) },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: false,
   })
 
+  const pageCount = table.getPageCount()
+  const rows = table.getRowModel().rows
+
   return (
-    <Table>
-      <TableHeader>
-        {table.getHeaderGroups().map((hg) => (
-          <TableRow key={hg.id}>
-            {hg.headers.map((header) => (
-              <TableHead
-                key={header.id}
-                className={header.column.getCanSort() ? "cursor-pointer select-none" : ""}
-                onClick={header.column.getToggleSortingHandler()}
+    <div className="flex flex-col gap-0 rounded-md border border-border/60 overflow-hidden">
+      {/* Scrollable table area */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            {table.getHeaderGroups().map((hg) => (
+              <tr key={hg.id} className="border-b border-border/60 bg-muted/30">
+                {hg.headers.map((header) => (
+                  <th
+                    key={header.id}
+                    className={cn(
+                      "px-3 py-2.5 text-left font-medium text-[11px] text-muted-foreground uppercase tracking-wider whitespace-nowrap sticky top-0 bg-muted/60 backdrop-blur-sm z-10",
+                      header.column.getCanSort() ? "cursor-pointer select-none hover:text-foreground transition-colors" : ""
+                    )}
+                    onClick={header.column.getToggleSortingHandler()}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.column.getCanSort() && (
+                        header.column.getIsSorted() === "asc"  ? <ArrowUp className="size-2.5 text-foreground" /> :
+                        header.column.getIsSorted() === "desc" ? <ArrowDown className="size-2.5 text-foreground" /> :
+                        <ArrowUpDown className="size-2.5 opacity-30" />
+                      )}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr
+                key={row.id}
+                onClick={() => onRowClick(row.original.bbl)}
+                className={cn(
+                  "border-b border-border/30 cursor-pointer transition-colors",
+                  urgencyClass(row.original),
+                  i % 2 === 0 ? "bg-background" : "bg-card/40",
+                  "hover:bg-accent/30"
+                )}
               >
-                <span className="inline-flex items-center gap-1">
-                  {flexRender(header.column.columnDef.header, header.getContext())}
-                  {header.column.getCanSort() && (
-                    header.column.getIsSorted() === "asc" ? <ArrowUp className="size-3" /> :
-                    header.column.getIsSorted() === "desc" ? <ArrowDown className="size-3" /> :
-                    <ArrowUpDown className="size-3 opacity-40" />
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id} className="px-3 py-2.5">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {!data.length && (
+              <tr>
+                <td colSpan={COLUMNS.length} className="text-center text-muted-foreground py-16 font-mono text-xs">
+                  No properties found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/60 bg-muted/20">
+          <span className="text-[11px] text-muted-foreground font-mono">
+            {pageIndex * PAGE_SIZE + 1}–{Math.min((pageIndex + 1) * PAGE_SIZE, data.length)} of {data.length.toLocaleString()}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPageIndex(0)}
+              disabled={pageIndex === 0}
+              className="px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              «
+            </button>
+            <button
+              onClick={() => setPageIndex(p => Math.max(0, p - 1))}
+              disabled={pageIndex === 0}
+              className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="size-3.5" />
+            </button>
+            {/* Page number pills */}
+            {Array.from({ length: Math.min(7, pageCount) }, (_, i) => {
+              const start = Math.max(0, Math.min(pageIndex - 3, pageCount - 7))
+              const pg = start + i
+              return (
+                <button
+                  key={pg}
+                  onClick={() => setPageIndex(pg)}
+                  className={cn(
+                    "w-7 h-6 text-[11px] rounded font-mono transition-colors",
+                    pg === pageIndex
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   )}
-                </span>
-              </TableHead>
-            ))}
-          </TableRow>
-        ))}
-      </TableHeader>
-      <TableBody>
-        {table.getRowModel().rows.map((row) => (
-          <TableRow
-            key={row.id}
-            className="cursor-pointer"
-            onClick={() => router.push(`/property/${row.original.bbl}`)}
-          >
-            {row.getVisibleCells().map((cell) => (
-              <TableCell key={cell.id}>
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
-        {!data.length && (
-          <TableRow>
-            <TableCell colSpan={COLUMNS.length} className="text-center text-muted-foreground py-12">
-              No properties found. Run the pipeline to populate data.
-            </TableCell>
-          </TableRow>
-        )}
-      </TableBody>
-    </Table>
+                >
+                  {pg + 1}
+                </button>
+              )
+            })}
+            <button
+              onClick={() => setPageIndex(p => Math.min(pageCount - 1, p + 1))}
+              disabled={pageIndex >= pageCount - 1}
+              className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronRight className="size-3.5" />
+            </button>
+            <button
+              onClick={() => setPageIndex(pageCount - 1)}
+              disabled={pageIndex >= pageCount - 1}
+              className="px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              »
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

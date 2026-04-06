@@ -14,11 +14,13 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
   const currentYear = new Date().getFullYear()
   const borough = searchParams.borough
   const expiresFrom = parseInt(searchParams.expiresFrom ?? String(currentYear)) || currentYear
-  const expiresTo = parseInt(searchParams.expiresTo ?? String(currentYear)) || currentYear
+  const expiresTo = parseInt(searchParams.expiresTo ?? String(currentYear + 2)) || currentYear + 2
   const minScore = parseFloat(searchParams.minScore ?? "0")
   const minUnits = parseInt(searchParams.minUnits ?? "0") || 0
   const owner = searchParams.owner ?? null
   const hideCondo = searchParams.hideCondo === "1"
+  const buildingClass = searchParams.buildingClass ?? null
+  const search = searchParams.search ?? null
 
   let query = supabase
     .from("property_pipeline")
@@ -39,14 +41,21 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
     query = query.ilike("owner_name", `%${owner}%`)
   }
   if (hideCondo) {
-    query = query.not("edge_case_flags", "cs", '["CONDO_BBL"]')
+    query = query.not("edge_case_flags", "cs", "{CONDO_BBL}")
+  }
+  if (buildingClass) {
+    query = query.ilike("building_class", `${buildingClass}%`)
+  }
+  if (search) {
+    // Search by address or BBL
+    query = query.or(`address.ilike.%${search}%,bbl.eq.${search}`)
   }
 
   const { data, error } = await query
 
   if (error) {
     return (
-      <div className="text-destructive text-sm py-8">
+      <div className="text-destructive text-sm py-8 px-6">
         Error loading properties: {error.message}
       </div>
     )
@@ -64,29 +73,44 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const params = await searchParams
 
   return (
-    <main className="max-w-[1400px] mx-auto px-4 py-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          NYC Abatement Expiration Tracker
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Properties where 421-a or J-51 tax abatements are expiring — acquisition pipeline intelligence.
-        </p>
+    <div className="min-h-screen flex flex-col">
+      {/* Top nav bar */}
+      <header className="border-b border-border/60 bg-card/80 backdrop-blur-sm sticky top-0 z-30">
+        <div className="max-w-[1520px] mx-auto px-5 h-12 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="size-5 rounded-sm bg-primary/90 flex items-center justify-center">
+              <span className="text-primary-foreground text-[10px] font-bold tracking-tighter">AT</span>
+            </div>
+            <span className="text-sm font-semibold tracking-tight text-foreground">NYC Abatement Tracker</span>
+            <span className="text-[11px] text-muted-foreground hidden sm:block">— 421-a &amp; J-51 expiration pipeline</span>
+          </div>
+          <div className="text-[11px] text-muted-foreground font-mono">
+            {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          </div>
+        </div>
+      </header>
+
+      {/* Filter bar */}
+      <div className="border-b border-border/50 bg-background/95">
+        <div className="max-w-[1520px] mx-auto px-5">
+          <Suspense>
+            <FilterBar />
+          </Suspense>
+        </div>
       </div>
 
-      <Suspense>
-        <FilterBar />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <div className="text-sm text-muted-foreground py-12 text-center">
-            Loading properties…
-          </div>
-        }
-      >
-        <PropertiesList searchParams={params} />
-      </Suspense>
-    </main>
+      {/* Main content */}
+      <main className="flex-1 max-w-[1520px] mx-auto w-full px-5 py-5">
+        <Suspense
+          fallback={
+            <div className="text-sm text-muted-foreground py-16 text-center font-mono">
+              Loading pipeline…
+            </div>
+          }
+        >
+          <PropertiesList searchParams={params} />
+        </Suspense>
+      </main>
+    </div>
   )
 }

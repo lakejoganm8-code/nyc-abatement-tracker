@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
-import { useCallback } from "react"
+import { useCallback, useRef } from "react"
 import {
   Select,
   SelectContent,
@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Search, X } from "lucide-react"
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -18,6 +18,7 @@ export function FilterBar() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const searchRef = useRef<HTMLInputElement>(null)
 
   const updateParam = useCallback(
     (key: string, value: string | null) => {
@@ -32,20 +33,43 @@ export function FilterBar() {
     [router, pathname, searchParams]
   )
 
+  const clearAll = useCallback(() => {
+    router.push(pathname)
+  }, [router, pathname])
+
   const borough = searchParams.get("borough") ?? "all"
   const expiresFrom = searchParams.get("expiresFrom") ?? String(CURRENT_YEAR)
-  const expiresTo = searchParams.get("expiresTo") ?? String(CURRENT_YEAR)
+  const expiresTo = searchParams.get("expiresTo") ?? String(CURRENT_YEAR + 2)
   const minScore = searchParams.get("minScore") ?? "0"
   const hideCondo = searchParams.get("hideCondo") === "1"
+  const search = searchParams.get("search") ?? ""
+
+  const hasFilters = searchParams.toString().length > 0
 
   return (
-    <div className="flex flex-wrap items-end gap-3 py-3">
+    <div className="flex flex-wrap items-center gap-2 py-2.5">
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+        <Input
+          ref={searchRef}
+          type="text"
+          placeholder="Address or BBL…"
+          className="pl-8 w-52 h-8 text-xs bg-muted/50 border-border/60 focus:bg-card"
+          defaultValue={search}
+          onBlur={(e) => updateParam("search", e.target.value || null)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") updateParam("search", (e.target as HTMLInputElement).value || null)
+            if (e.key === "Escape") { (e.target as HTMLInputElement).value = ""; updateParam("search", null) }
+          }}
+        />
+      </div>
+
+      <div className="h-4 w-px bg-border/60" />
+
       {/* Borough */}
-      <Select
-        value={borough}
-        onValueChange={(v) => updateParam("borough", v)}
-      >
-        <SelectTrigger className="w-40">
+      <Select value={borough} onValueChange={(v) => updateParam("borough", v)}>
+        <SelectTrigger className="h-8 w-36 text-xs bg-muted/50 border-border/60">
           <SelectValue placeholder="All boroughs" />
         </SelectTrigger>
         <SelectContent>
@@ -58,47 +82,33 @@ export function FilterBar() {
         </SelectContent>
       </Select>
 
-      {/* Expiration year range */}
-      <div className="flex items-end gap-1.5">
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Expires from</Label>
-          <Input
-            type="number"
-            className="w-24"
-            value={expiresFrom}
-            min={2020}
-            max={2060}
-            onChange={(e) => {
-              const v = e.target.value
-              if (v.length === 4) updateParam("expiresFrom", v)
-            }}
-            onBlur={(e) => updateParam("expiresFrom", e.target.value || String(CURRENT_YEAR))}
-          />
-        </div>
-        <span className="pb-2 text-muted-foreground text-sm">–</span>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">to</Label>
-          <Input
-            type="number"
-            className="w-24"
-            value={expiresTo}
-            min={2020}
-            max={2060}
-            onChange={(e) => {
-              const v = e.target.value
-              if (v.length === 4) updateParam("expiresTo", v)
-            }}
-            onBlur={(e) => updateParam("expiresTo", e.target.value || String(CURRENT_YEAR))}
-          />
-        </div>
+      {/* Expiration range */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] text-muted-foreground">Expires</span>
+        <Input
+          type="number"
+          className="w-20 h-8 text-xs bg-muted/50 border-border/60 font-mono"
+          value={expiresFrom}
+          min={2020} max={2060}
+          onChange={(e) => { if (e.target.value.length === 4) updateParam("expiresFrom", e.target.value) }}
+          onBlur={(e) => updateParam("expiresFrom", e.target.value || String(CURRENT_YEAR))}
+        />
+        <span className="text-[11px] text-muted-foreground">–</span>
+        <Input
+          type="number"
+          className="w-20 h-8 text-xs bg-muted/50 border-border/60 font-mono"
+          value={expiresTo}
+          min={2020} max={2060}
+          onChange={(e) => { if (e.target.value.length === 4) updateParam("expiresTo", e.target.value) }}
+          onBlur={(e) => updateParam("expiresTo", e.target.value || String(CURRENT_YEAR + 2))}
+        />
       </div>
 
-      {/* Min distress score */}
-      <Select
-        value={minScore}
-        onValueChange={(v) => updateParam("minScore", v)}
-      >
-        <SelectTrigger className="w-40">
+      <div className="h-4 w-px bg-border/60" />
+
+      {/* Distress score */}
+      <Select value={minScore} onValueChange={(v) => updateParam("minScore", v)}>
+        <SelectTrigger className="h-8 w-36 text-xs bg-muted/50 border-border/60">
           <SelectValue placeholder="Min score" />
         </SelectTrigger>
         <SelectContent>
@@ -113,7 +123,7 @@ export function FilterBar() {
       <Input
         type="number"
         placeholder="Min units"
-        className="w-28"
+        className="w-24 h-8 text-xs bg-muted/50 border-border/60"
         defaultValue={searchParams.get("minUnits") ?? ""}
         onBlur={(e) => updateParam("minUnits", e.target.value)}
         onKeyDown={(e) => {
@@ -125,8 +135,8 @@ export function FilterBar() {
       {/* Owner search */}
       <Input
         type="text"
-        placeholder="Owner search"
-        className="w-40"
+        placeholder="Owner"
+        className="w-32 h-8 text-xs bg-muted/50 border-border/60"
         defaultValue={searchParams.get("owner") ?? ""}
         onBlur={(e) => updateParam("owner", e.target.value || null)}
         onKeyDown={(e) => {
@@ -134,16 +144,28 @@ export function FilterBar() {
         }}
       />
 
+      <div className="h-4 w-px bg-border/60" />
+
       {/* Hide condos */}
-      <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none pb-0.5">
+      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none group">
         <input
           type="checkbox"
           checked={hideCondo}
           onChange={(e) => updateParam("hideCondo", e.target.checked ? "1" : null)}
-          className="h-4 w-4 rounded border-input accent-primary"
+          className="h-3.5 w-3.5 rounded border-input accent-primary"
         />
-        Hide condos
+        <span className="group-hover:text-foreground transition-colors">Hide condos</span>
       </label>
+
+      {/* Clear all */}
+      {hasFilters && (
+        <button
+          onClick={clearAll}
+          className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <X className="size-3" /> Clear
+        </button>
+      )}
     </div>
   )
 }
