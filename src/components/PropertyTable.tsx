@@ -43,6 +43,21 @@ export interface PropertyRow {
   is_rent_stabilized: boolean | null
   stabilization_source: string | null
   condo_unit_count: number | null
+  // Phase B
+  hpd_owner_name: string | null
+  hpd_owner_phone: string | null
+  hpd_agent_name: string | null
+  hpd_agent_phone: string | null
+  // Phase C
+  has_tax_lien: boolean
+  dob_violation_count: number
+  hp_action_count: number
+  nonpayment_count: number
+  // Phase D
+  estimated_market_value: number | null
+  // Phase E
+  dos_entity_status: string | null
+  dos_search_url: string | null
 }
 
 const col = createColumnHelper<PropertyRow>()
@@ -126,6 +141,11 @@ const COLUMNS = [
             {row.condo_unit_count != null && (
               <span className="text-[10px] px-1 rounded bg-violet-950/60 text-violet-400 font-mono">
                 {row.condo_unit_count}u condo
+              </span>
+            )}
+            {row.has_tax_lien && (
+              <span className="text-[10px] px-1 rounded bg-red-950/70 text-red-400 font-mono font-semibold">
+                LIEN
               </span>
             )}
           </div>

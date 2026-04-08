@@ -27,13 +27,20 @@ import { createClient } from "@supabase/supabase-js"
 import { fetchExemptions } from "@/lib/nyc/exemptions"
 import { processExemptions } from "@/lib/analysis/expiration"
 import { getHPDData } from "@/lib/nyc/hpd"
+import { fetchHPDContacts } from "@/lib/nyc/hpd-contacts"
 import { fetchPLUTOData } from "@/lib/nyc/pluto"
 import { fetchACRISBatch, fetchACRISBulk, ACRIS_SUPER_WAVE } from "@/lib/nyc/acris-bulk"
 // HCR dataset (8y9c-t29b) no longer available on NYC Open Data — skipped
 import { fetchEvictionCounts } from "@/lib/nyc/evictions"
-import { scoreAll } from "@/lib/analysis/scoring"
+import { fetchTaxLienBBLs } from "@/lib/nyc/tax-liens"
+import { fetchDOBViolationCounts } from "@/lib/nyc/dob-violations"
+import { fetchHousingCourtCounts } from "@/lib/nyc/housing-court"
+import { fetchDOFMarketValues } from "@/lib/nyc/dof-assessment"
+import { fetchDOSEntityInfo } from "@/lib/nyc/ny-dos"
+import { scoreAll, type ScoringExtra } from "@/lib/analysis/scoring"
 import { EXEMPTION_CODES_421A, EXEMPTION_CODES_J51 } from "@/lib/analysis/config"
 import type { ExemptionRecord, HPDData, PLUTOData, ACRISRecord, PipelineRun } from "@/types"
+import type { HPDContact } from "@/lib/nyc/hpd-contacts"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -184,6 +191,108 @@ async function upsertACRIS(acrisMap: Map<string, ACRISRecord>): Promise<number> 
   return total
 }
 
+async function upsertDOSEntities(dosMap: Map<string, import("@/lib/nyc/ny-dos").DOSEntityInfo>): Promise<number> {
+  const rows = Array.from(dosMap.values()).map((d) => ({
+    bbl: d.bbl,
+    dos_entity_status: d.entityStatus,
+    dos_agent_name: d.registeredAgentName,
+    dos_agent_address: d.registeredAgentAddress,
+    dos_search_url: d.dosSearchUrl,
+    dos_date_of_formation: d.dateOfFormation,
+    fetched_at: new Date().toISOString(),
+  }))
+
+  let total = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("acris_records")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[dos upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    total += batchCount
+  }
+  return total
+}
+
+async function upsertHPDContacts(contactMap: Map<string, HPDContact>): Promise<number> {
+  const rows = Array.from(contactMap.values()).map((c) => ({
+    bbl: c.bbl,
+    registration_id: c.registrationId,
+    owner_name: c.ownerName,
+    owner_type: c.ownerType,
+    owner_phone: c.ownerPhone,
+    owner_mailing_address: c.ownerMailingAddress,
+    agent_name: c.agentName,
+    agent_phone: c.agentPhone,
+    agent_address: c.agentAddress,
+    fetched_at: new Date().toISOString(),
+  }))
+
+  let total = 0
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const batch = rows.slice(i, i + UPSERT_BATCH)
+    let batchCount = 0
+    await withRetry(async () => {
+      const { error, count } = await supabase
+        .from("hpd_contacts")
+        .upsert(batch, { onConflict: "bbl", count: "exact" })
+      if (error) throw new Error(`[hpd_contacts upsert] ${error.message}`)
+      batchCount = count ?? batch.length
+    })
+    total += batchCount
+  }
+  return total
+}
+
+async function upsertDistressEnrichment(
+  records: ExemptionRecord[],
+  taxLienSet: Set<string>,
+  dobMap: Map<string, number>,
+  courtMap: Map<string, { hpActions: number; nonpaymentCases: number }>,
+  dofMap: Map<string, number>
+): Promise<void> {
+  // Update exemptions table with distress fields; also update acris_records with dof_market_value
+  const exemptionRows = records
+    .filter((r) => taxLienSet.has(r.bbl) || dobMap.has(r.bbl) || courtMap.has(r.bbl))
+    .map((r) => ({
+      bbl: r.bbl,
+      has_tax_lien: taxLienSet.has(r.bbl),
+      dob_violation_count: dobMap.get(r.bbl) ?? 0,
+      hp_action_count: courtMap.get(r.bbl)?.hpActions ?? 0,
+      nonpayment_count: courtMap.get(r.bbl)?.nonpaymentCases ?? 0,
+    }))
+
+  for (let i = 0; i < exemptionRows.length; i += UPSERT_BATCH) {
+    const batch = exemptionRows.slice(i, i + UPSERT_BATCH)
+    await withRetry(async () => {
+      const { error } = await supabase
+        .from("exemptions")
+        .upsert(batch, { onConflict: "bbl" })
+      if (error) throw new Error(`[distress enrichment upsert] ${error.message}`)
+    })
+  }
+
+  // Update acris_records with DOF market value
+  const dofRows = Array.from(dofMap.entries()).map(([bbl, val]) => ({
+    bbl,
+    dof_market_value: val,
+    fetched_at: new Date().toISOString(),
+  }))
+  for (let i = 0; i < dofRows.length; i += UPSERT_BATCH) {
+    const batch = dofRows.slice(i, i + UPSERT_BATCH)
+    await withRetry(async () => {
+      const { error } = await supabase
+        .from("acris_records")
+        .upsert(batch, { onConflict: "bbl" })
+      if (error) throw new Error(`[dof_market_value upsert] ${error.message}`)
+    })
+  }
+}
+
 async function upsertStabilization(
   hcrMap: Map<string, boolean>,
   records: ExemptionRecord[]
@@ -236,6 +345,8 @@ async function upsertScores(scores: ReturnType<typeof scoreAll>): Promise<number
     debt_component: s.components.debtLoad,
     ownership_component: s.components.ownershipDuration,
     violation_component: s.components.violations,
+    tax_lien_component: s.components.taxLien,
+    housing_court_component: s.components.housingCourt,
     estimated_annual_rent_upside: s.estimatedAnnualRentUpside,
     deregulation_risk: s.deregulationRisk,
     ami_tier: s.amiTier,
@@ -362,10 +473,68 @@ async function main() {
   await logRun({ dataset: "hpd+pluto", rowsUpserted: hpdCount + plutoCount, durationMs: Date.now() - t3, status: "success" })
   console.log(`[pipeline] Upserted ${hpdCount} HPD + ${plutoCount} PLUTO records`)
 
-  // Step 4: Scores (now with ACRIS + PLUTO data — fixes the empty-map bug)
+  // Step 4: Phase B — HPD Registration Contacts (owner/agent phone + address)
+  console.log("[pipeline] Fetching HPD Registration Contacts...")
+  const tContacts = Date.now()
+  const regIdToBBL = new Map<string, string>()
+  for (const [bbl, hpd] of hpdMap) {
+    if (hpd.registrationId) regIdToBBL.set(hpd.registrationId, bbl)
+  }
+  const contactMap = await fetchHPDContacts(regIdToBBL)
+  const contactCount = await upsertHPDContacts(contactMap)
+  await logRun({ dataset: "hpd_contacts", rowsUpserted: contactCount, durationMs: Date.now() - tContacts, status: "success" })
+  console.log(`[pipeline] HPD Contacts: ${contactCount} records (${Date.now() - tContacts}ms)`)
+
+  // Step 5: Phase C — Tax liens, DOB violations, Housing court (priority BBLs)
+  console.log("[pipeline] Fetching Phase C distress signals (tax liens, DOB, housing court)...")
+  const tPhaseC = Date.now()
+  const [taxLienSet, dobMap, courtMap] = await Promise.all([
+    fetchTaxLienBBLs(priorityBBLs),
+    fetchDOBViolationCounts(priorityBBLs),
+    fetchHousingCourtCounts(priorityBBLs),
+  ])
+  console.log(`[pipeline] Tax liens: ${taxLienSet.size}, DOB violations: ${dobMap.size} BBLs, Housing court: ${courtMap.size} BBLs (${Date.now() - tPhaseC}ms)`)
+
+  // Step 6: Phase D — DOF market values (priority BBLs)
+  console.log("[pipeline] Fetching DOF market values...")
+  const tDOF = Date.now()
+  const dofMap = await fetchDOFMarketValues(priorityBBLs)
+  console.log(`[pipeline] DOF market values: ${dofMap.size} records (${Date.now() - tDOF}ms)`)
+
+  // Step 6.5: Phase E — NY DOS LLC entity lookup (priority BBLs with LLC owner names)
+  console.log("[pipeline] Fetching NY DOS entity info for LLC-owned properties...")
+  const tDOS = Date.now()
+  const ownersByBBL = new Map<string, string>()
+  for (const [bbl, acris] of acrisMap) {
+    if (acris.ownerName) ownersByBBL.set(bbl, acris.ownerName)
+  }
+  const dosMap = await fetchDOSEntityInfo(ownersByBBL)
+  if (dosMap.size > 0) {
+    await upsertDOSEntities(dosMap)
+  }
+  console.log(`[pipeline] DOS entity lookup: ${dosMap.size} records (${Date.now() - tDOS}ms)`)
+
+  // Upsert distress enrichment (exemptions + acris_records updates)
+  await upsertDistressEnrichment(targetRecords, taxLienSet, dobMap, courtMap, dofMap)
+  await logRun({ dataset: "distress_enrichment", rowsUpserted: taxLienSet.size + dobMap.size + courtMap.size, durationMs: Date.now() - tPhaseC, status: "success" })
+
+  // Build extraMap for scoring
+  const extraMap = new Map<string, ScoringExtra>()
+  for (const bbl of priorityBBLs) {
+    const court = courtMap.get(bbl)
+    extraMap.set(bbl, {
+      hasLien: taxLienSet.has(bbl),
+      dobViolationCount: dobMap.get(bbl) ?? 0,
+      hpActionCount: court?.hpActions ?? 0,
+      nonpaymentCount: court?.nonpaymentCases ?? 0,
+      dofMarketValue: dofMap.get(bbl) ?? null,
+    })
+  }
+
+  // Step 7: Scores (now with all enrichment data)
   console.log("[pipeline] Computing distress scores...")
   const t4 = Date.now()
-  const scores = scoreAll(targetRecords, hpdMap, acrisMap, plutoMap)
+  const scores = scoreAll(targetRecords, hpdMap, acrisMap, plutoMap, extraMap)
   const scoreCount = await upsertScores(scores)
   await logRun({ dataset: "scores", rowsUpserted: scoreCount, durationMs: Date.now() - t4, status: "success" })
   console.log(`[pipeline] Upserted ${scoreCount} score records`)

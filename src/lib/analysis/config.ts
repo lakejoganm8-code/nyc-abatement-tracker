@@ -7,11 +7,16 @@ export const DATASETS = {
   J51: "y7az-s7wc",                // J-51 Exemption Records
   HPD_REGISTRATION: "tesw-yqqr",   // HPD Residential Building Registrations
   HPD_VIOLATIONS: "wvxf-dwi5",     // HPD Building Violations
+  HPD_CONTACTS: "feu5-w2e2",       // HPD Registration Contacts (owner/agent phone + address)
   ACRIS_LEGALS: "8h5j-fqxa",       // ACRIS Real Property Legals (BBL → doc_id)
   ACRIS_MASTER: "bnx9-e6tj",       // ACRIS Real Property Master (doc_id → details)
   ACRIS_PARTIES: "636b-3b5g",      // ACRIS Real Property Parties (doc_id → names)
   EVICTIONS: "6z8x-wfk4",          // NYC Marshal Evictions (has bbl column directly)
   PLUTO: "64uk-42ks",              // MapPLUTO (zoning, FAR, coordinates, year built)
+  TAX_LIENS: "9rz4-mjek",          // DOF Tax Lien Sale List (financial distress signal)
+  DOB_VIOLATIONS: "3h2n-5cm9",     // DOB Building Violations (capital expenditure signal)
+  HOUSING_COURT: "59kj-x8nc",      // Housing Court Litigations (HP actions + nonpayment)
+  DOF_ASSESSMENT: "8y4t-faws",     // DOF Property Valuation & Assessment (market value)
 } as const
 
 export const SOCRATA_BASE_URL = "https://data.cityofnewyork.us/resource"
@@ -98,11 +103,13 @@ export const ALL_TARGET_CODES = [
 // ─── Scoring weights ──────────────────────────────────────────────────────────
 
 export const SCORE_WEIGHTS = {
-  taxImpact: 0.30,         // absolute dollar shock drives seller motivation
+  taxImpact: 0.25,         // absolute dollar shock drives seller motivation
   timeToExpiration: 0.25,  // urgency — sooner is higher score
   debtLoad: 0.20,          // high LTV + expiring abatement = refi pressure
-  ownershipDuration: 0.15, // long holds = possible seller fatigue
-  violations: 0.10,        // deferred maintenance = distressed ownership signal
+  ownershipDuration: 0.10, // long holds = possible seller fatigue
+  violations: 0.10,        // deferred maintenance = distressed ownership signal (HPD + DOB)
+  taxLien: 0.05,           // on tax lien sale list = extreme financial distress (binary)
+  housingCourt: 0.05,      // HP actions + nonpayment cases = tenant distress
 } as const
 
 // ─── Default scan window ─────────────────────────────────────────────────────

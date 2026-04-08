@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, ExternalLink, TrendingDown, Shield, AlertTriangle, Building2, DollarSign, BarChart3 } from "lucide-react"
+import { X, ExternalLink, TrendingDown, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface PropertyData {
@@ -41,6 +41,28 @@ interface PropertyData {
   neighborhood: string | null
   registration_status: string | null
   edge_case_flags: string[]
+  // Phase B: HPD contacts
+  hpd_owner_name: string | null
+  hpd_owner_phone: string | null
+  hpd_owner_address: string | null
+  hpd_owner_type: string | null
+  hpd_agent_name: string | null
+  hpd_agent_phone: string | null
+  hpd_agent_address: string | null
+  // Phase C: distress signals
+  has_tax_lien: boolean
+  dob_violation_count: number
+  hp_action_count: number
+  nonpayment_count: number
+  // Phase C: score components
+  tax_lien_component: number | null
+  housing_court_component: number | null
+  // Phase E: DOS entity research
+  dos_entity_status: string | null
+  dos_agent_name: string | null
+  dos_agent_address: string | null
+  dos_search_url: string | null
+  dos_date_of_formation: string | null
 }
 
 interface PropertySlideOverProps {
@@ -216,12 +238,50 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
             <>
               {/* Score breakdown */}
               <Section title="Distress Score" icon={<BarChart3 className="size-3.5" />}>
-                <ScoreBar label="Tax Impact"          value={property.tax_impact_component ?? 0}   weight="30%" />
-                <ScoreBar label="Time to Expiration"  value={property.time_component ?? 0}          weight="25%" />
-                <ScoreBar label="Debt Load"           value={property.debt_component ?? 0}          weight="20%" />
-                <ScoreBar label="Ownership Duration"  value={property.ownership_component ?? 0}     weight="15%" />
-                <ScoreBar label="HPD Violations"      value={property.violation_component ?? 0}     weight="10%" />
+                <ScoreBar label="Tax Impact"          value={property.tax_impact_component ?? 0}        weight="25%" />
+                <ScoreBar label="Time to Expiration"  value={property.time_component ?? 0}              weight="25%" />
+                <ScoreBar label="Debt Load"           value={property.debt_component ?? 0}              weight="20%" />
+                <ScoreBar label="Ownership Duration"  value={property.ownership_component ?? 0}         weight="10%" />
+                <ScoreBar label="Building Condition"  value={property.violation_component ?? 0}         weight="10%" />
+                <ScoreBar label="Tax Lien"            value={property.tax_lien_component ?? 0}          weight="5%" />
+                <ScoreBar label="Housing Court"       value={property.housing_court_component ?? 0}     weight="5%" />
               </Section>
+
+              {/* Contact — Phase B */}
+              {(property.hpd_owner_name || property.hpd_agent_name) && (
+                <Section title="Contact" icon={<Phone className="size-3.5" />}>
+                  {property.hpd_owner_name && (
+                    <Row label="Owner" value={
+                      <span className="text-right">
+                        <span className="block">{property.hpd_owner_name}</span>
+                        {property.hpd_owner_phone && (
+                          <a href={`tel:${property.hpd_owner_phone}`} className="text-sky-400 hover:underline font-mono">
+                            {property.hpd_owner_phone}
+                          </a>
+                        )}
+                      </span>
+                    } />
+                  )}
+                  {property.hpd_owner_address && (
+                    <Row label="Owner address" value={property.hpd_owner_address} />
+                  )}
+                  {property.hpd_agent_name && (
+                    <Row label="Managing agent" value={
+                      <span className="text-right">
+                        <span className="block">{property.hpd_agent_name}</span>
+                        {property.hpd_agent_phone && (
+                          <a href={`tel:${property.hpd_agent_phone}`} className="text-sky-400 hover:underline font-mono">
+                            {property.hpd_agent_phone}
+                          </a>
+                        )}
+                      </span>
+                    } />
+                  )}
+                  {property.hpd_agent_address && (
+                    <Row label="Agent address" value={property.hpd_agent_address} />
+                  )}
+                </Section>
+              )}
 
               {/* Abatement */}
               <Section title="Abatement Profile" icon={<TrendingDown className="size-3.5" />}>
@@ -274,22 +334,83 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                 <Row label="Lender"         value={property.lender_name} />
               </Section>
 
+              {/* Entity Research — Phase E */}
+              {(property.dos_search_url || property.dos_entity_status) && (
+                <Section title="Entity Research" icon={<ExternalLink className="size-3.5" />}>
+                  {property.dos_entity_status && (
+                    <Row label="DOS status" value={
+                      <span className={cn("text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase",
+                        property.dos_entity_status.toUpperCase() === "ACTIVE"
+                          ? "text-emerald-400 bg-emerald-950/50"
+                          : "text-amber-400 bg-amber-950/50"
+                      )}>
+                        {property.dos_entity_status}
+                      </span>
+                    } />
+                  )}
+                  {property.dos_date_of_formation && (
+                    <Row label="Formed" value={fmtDate(property.dos_date_of_formation)} mono />
+                  )}
+                  {property.dos_agent_name && (
+                    <Row label="Registered agent" value={property.dos_agent_name} />
+                  )}
+                  {property.dos_agent_address && (
+                    <Row label="Agent address" value={property.dos_agent_address} />
+                  )}
+                  {property.dos_search_url && (
+                    <div className="py-1.5">
+                      <a
+                        href={property.dos_search_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[11px] text-sky-400 hover:underline"
+                      >
+                        Search NY DOS <ExternalLink className="size-2.5" />
+                      </a>
+                    </div>
+                  )}
+                </Section>
+              )}
+
               {/* Building */}
               <Section title="Building Profile" icon={<Building2 className="size-3.5" />}>
                 <Row label="Total units"    value={property.total_units} mono />
                 <Row label="Building class" value={<span className="font-mono">{property.building_class}</span>} />
                 <Row label="Zoning"         value={property.zoning} />
                 <Row label="Neighborhood"   value={property.neighborhood} />
-                <Row label="Violations 12mo" value={
+                <Row label="HPD violations 12mo" value={
                   <span className={property.violation_count_12mo >= 10 ? "text-red-400 font-semibold font-mono" : "font-mono"}>
                     {property.violation_count_12mo}
                   </span>
                 } />
+                {property.dob_violation_count > 0 && (
+                  <Row label="DOB violations (open)" value={
+                    <span className={property.dob_violation_count >= 5 ? "text-red-400 font-semibold font-mono" : "font-mono"}>
+                      {property.dob_violation_count}
+                    </span>
+                  } />
+                )}
                 <Row label="Evictions 12mo" value={
                   <span className={(property.eviction_count_12mo ?? 0) >= 3 ? "text-red-400 font-semibold font-mono" : "font-mono"}>
                     {property.eviction_count_12mo ?? 0}
                   </span>
                 } />
+                {(property.hp_action_count > 0 || property.nonpayment_count > 0) && (
+                  <Row label="Housing court 12mo" value={
+                    <span className="font-mono text-amber-400">
+                      {property.hp_action_count > 0 ? `${property.hp_action_count} HP` : ""}
+                      {property.hp_action_count > 0 && property.nonpayment_count > 0 ? " · " : ""}
+                      {property.nonpayment_count > 0 ? `${property.nonpayment_count} NP` : ""}
+                    </span>
+                  } />
+                )}
+                {property.has_tax_lien && (
+                  <Row label="Tax lien" value={
+                    <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-red-950/60 text-red-400 uppercase">
+                      On lien sale list
+                    </span>
+                  } />
+                )}
               </Section>
 
               {/* External links + disclaimer */}

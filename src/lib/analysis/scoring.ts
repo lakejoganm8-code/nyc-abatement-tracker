@@ -44,17 +44,20 @@ function timeToExpirationScore(
 
 /**
  * Debt load: estimated LTV. Higher LTV = more refinancing pressure.
- * Rough estimate: mortgage / assessed_value * equalization_rate (assume ~45% for NYC class 2).
+ * Uses DOF market value if available; falls back to assessed_value / 0.45.
  * LTV 0% = 0, LTV 100%+ = 100.
  */
 function debtLoadScore(
   lastMortgageAmount: number | null,
-  assessedValue: number
+  assessedValue: number,
+  dofMarketValue?: number | null
 ): number {
-  if (!lastMortgageAmount || !assessedValue) return 0
-  // NYC class 2 equalization rate ~45%
-  const estimatedMarketValue = assessedValue / 0.45
-  const ltv = lastMortgageAmount / estimatedMarketValue
+  if (!lastMortgageAmount) return 0
+  const marketValue = dofMarketValue && dofMarketValue > 0
+    ? dofMarketValue
+    : assessedValue > 0 ? assessedValue / 0.45 : 0
+  if (!marketValue) return 0
+  const ltv = lastMortgageAmount / marketValue
   return clamp(ltv * 100)
 }
 
@@ -68,20 +71,44 @@ function ownershipDurationScore(ownershipYears: number | null): number {
 }
 
 /**
- * HPD violations: more violations = higher distress signal.
- * 0 = 0, 20+ = 100.
+ * Building condition: HPD violations + DOB violations combined.
+ * 0 = 0, 30+ combined = 100.
  */
-function violationScore(violationCount12mo: number): number {
-  return clamp((violationCount12mo / 20) * 100)
+function violationScore(hpdViolations: number, dobViolations: number): number {
+  return clamp(((hpdViolations + dobViolations) / 30) * 100)
+}
+
+/**
+ * Tax lien: binary — if property is on the tax lien sale list, full score.
+ */
+function taxLienScore(hasLien: boolean): number {
+  return hasLien ? 100 : 0
+}
+
+/**
+ * Housing court activity: HP actions + nonpayment cases (last 12mo).
+ * 0 = 0, 10+ cases = 100.
+ */
+function housingCourtScore(hpActions: number, nonpaymentCases: number): number {
+  return clamp(((hpActions + nonpaymentCases) / 10) * 100)
 }
 
 // ─── Main scorer ─────────────────────────────────────────────────────────────
+
+export interface ScoringExtra {
+  hasLien: boolean
+  dobViolationCount: number
+  hpActionCount: number
+  nonpaymentCount: number
+  dofMarketValue?: number | null
+}
 
 export function scoreProperty(
   exemption: ExemptionRecord,
   hpd: HPDData | null,
   acris: ACRISRecord | null,
-  pluto: PLUTOData | null
+  pluto: PLUTOData | null,
+  extra?: ScoringExtra
 ): PropertyScore {
   const components: ScoreComponents = {
     taxImpact: taxImpactScore(exemption.annualExemptAmount),
@@ -91,10 +118,13 @@ export function scoreProperty(
     ),
     debtLoad: debtLoadScore(
       acris?.lastMortgageAmount ?? null,
-      exemption.assessedValue
+      exemption.assessedValue,
+      extra?.dofMarketValue
     ),
     ownershipDuration: ownershipDurationScore(acris?.ownershipYears ?? null),
-    violations: violationScore(hpd?.violationCount12mo ?? 0),
+    violations: violationScore(hpd?.violationCount12mo ?? 0, extra?.dobViolationCount ?? 0),
+    taxLien: taxLienScore(extra?.hasLien ?? false),
+    housingCourt: housingCourtScore(extra?.hpActionCount ?? 0, extra?.nonpaymentCount ?? 0),
   }
 
   const distressScore =
@@ -102,7 +132,9 @@ export function scoreProperty(
     components.timeToExpiration  * SCORE_WEIGHTS.timeToExpiration +
     components.debtLoad          * SCORE_WEIGHTS.debtLoad +
     components.ownershipDuration * SCORE_WEIGHTS.ownershipDuration +
-    components.violations        * SCORE_WEIGHTS.violations
+    components.violations        * SCORE_WEIGHTS.violations +
+    components.taxLien           * SCORE_WEIGHTS.taxLien +
+    components.housingCourt      * SCORE_WEIGHTS.housingCourt
 
   const totalUnits = pluto?.totalUnits ?? hpd?.totalUnits ?? null
   const amiTier = inferAMITier(exemption.exemptionCode)
@@ -127,7 +159,8 @@ export function scoreAll(
   exemptions: ExemptionRecord[],
   hpdMap: Map<string, HPDData>,
   acrisMap: Map<string, ACRISRecord>,
-  plutoMap: Map<string, PLUTOData>
+  plutoMap: Map<string, PLUTOData>,
+  extraMap?: Map<string, ScoringExtra>
 ): PropertyScore[] {
   return exemptions
     .map((e) => scoreProperty(
@@ -135,6 +168,7 @@ export function scoreAll(
       hpdMap.get(e.bbl) ?? null,
       acrisMap.get(e.bbl) ?? null,
       plutoMap.get(e.bbl) ?? null,
+      extraMap?.get(e.bbl),
     ))
     .sort((a, b) => b.distressScore - a.distressScore)
 }

@@ -117,7 +117,9 @@ export interface ScoreComponents {
   timeToExpiration: number // 0–100
   debtLoad: number         // 0–100
   ownershipDuration: number // 0–100
-  violations: number       // 0–100
+  violations: number       // 0–100 (HPD + DOB combined)
+  taxLien: number          // 0 or 100 (binary: on tax lien sale list)
+  housingCourt: number     // 0–100 (HP actions + nonpayment case density)
 }
 
 export type DeregulationRisk = "high" | "medium" | "low"

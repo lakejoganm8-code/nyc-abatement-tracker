@@ -198,8 +198,8 @@ Key known gaps: ~50% ACRIS null rate (LLC/cash/pre-1966 deals), no beneficial ow
 - [x] Step 23: pipeline.ts — ACRIS bulk wired, ACRIS before HPD, incremental batch writes
 - [x] Step 24: API + frontend — owner filter, new table columns, slide-over panel, dark UI
 - [x] Step 25: CLAUDE.md — updated (this file)
-- [ ] Phase A: Condo deduplication — collapse condo units to parent lot
-- [ ] Phase B: HPD Registration Contacts — owner/agent contact info
-- [ ] Phase C: Tax liens + DOB violations + housing court filings
-- [ ] Phase D: DOF property assessment — better market value
-- [ ] Phase E: NY DOS LLC entity lookup
+- [x] Phase A: Condo deduplication — collapse condo units to parent lot (isCondoBBL fix, two-pass processExemptions, condo_unit_count column)
+- [x] Phase B: HPD Registration Contacts — owner/agent contact info (hpd-contacts.ts, hpd_contacts table, slide-over Contact section)
+- [x] Phase C: Tax liens + DOB violations + housing court filings (tax-liens.ts, dob-violations.ts, housing-court.ts; score rebalanced to 7 components)
+- [x] Phase D: DOF property assessment — better market value for LTV (dof-assessment.ts, dof_market_value on acris_records, used in debtLoadScore)
+- [x] Phase E: NY DOS LLC entity lookup (ny-dos.ts, DOS fields on acris_records, Entity Research section in slide-over)
