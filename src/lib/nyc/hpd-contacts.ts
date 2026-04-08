@@ -51,13 +51,19 @@ export async function fetchHPDContacts(
       if (!regId) continue
       const entry = byRegId.get(regId) ?? {}
 
-      // contactdescription: "Owner", "CorporateOwner", "Agent", "HeadOfficer", etc.
-      const desc = (row.contactdescription ?? "").toLowerCase()
-      const isOwner = desc.includes("owner") || desc.includes("head officer") || desc.includes("officer")
-      const isAgent = desc.includes("agent") || desc.includes("manager") || desc.includes("janitor") || desc.includes("superintendent")
+      // type field: "CorporateOwner", "IndividualOwner", "HeadOfficer", "Officer",
+      //             "Agent", "SiteManager", "Janitor", "Superintendent"
+      const type = (row.type ?? "").toLowerCase()
+      const isOwner = type === "corporateowner" || type === "individualowner" ||
+                      type === "headofficer" || type === "officer"
+      const isAgent = type === "agent" || type === "sitemanager" ||
+                      type === "janitor" || type === "superintendent"
 
-      if (isOwner && !entry.owner) entry.owner = row
-      else if (isAgent && !entry.agent) entry.agent = row
+      // Prefer CorporateOwner/IndividualOwner over HeadOfficer/Officer
+      if (isOwner) {
+        const isPrimary = type === "corporateowner" || type === "individualowner"
+        if (!entry.owner || isPrimary) entry.owner = row
+      } else if (isAgent && !entry.agent) entry.agent = row
 
       byRegId.set(regId, entry)
     }
