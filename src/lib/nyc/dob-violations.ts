@@ -52,11 +52,12 @@ export async function fetchDOBViolationCounts(bbls: string[]): Promise<Map<strin
   const client = getSocrataClient()
   const result = new Map<string, number>()
 
+  // Only count active violations (violation_category contains "ACTIVE" for open ones)
   const rows = await runChunked(bbls, CHUNK_SIZE, CONCURRENCY, (chunk) => {
     const where = buildDOBOrClause(chunk)
     return client.fetchAll(DATASET, {
-      $where: `(${where}) AND violation_type_code IS NOT NULL AND status != 'RESOLVED'`,
-      $select: "boro,block,lot,violation_type_code,status",
+      $where: `(${where}) AND violation_category LIKE '%ACTIVE%'`,
+      $select: "boro,block,lot,violation_type_code",
     }) as Promise<Record<string, string>[]>
   })
 

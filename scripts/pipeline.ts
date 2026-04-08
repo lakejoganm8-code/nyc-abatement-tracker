@@ -483,34 +483,54 @@ async function main() {
   await logRun({ dataset: "hpd_contacts", rowsUpserted: contactCount, durationMs: Date.now() - tContacts, status: "success" })
   console.log(`[pipeline] HPD Contacts: ${contactCount} records (${Date.now() - tContacts}ms)`)
 
-  // Step 5: Phase C — Tax liens, DOB violations, Housing court (priority BBLs)
-  console.log("[pipeline] Fetching Phase C distress signals (tax liens, DOB, housing court)...")
+  // Step 5: Phase C — Tax liens, DOB violations, Housing court (priority BBLs, non-fatal)
+  let taxLienSet = new Set<string>()
+  let dobMap = new Map<string, number>()
+  let courtMap = new Map<string, { hpActions: number; nonpaymentCases: number }>()
   const tPhaseC = Date.now()
-  const [taxLienSet, dobMap, courtMap] = await Promise.all([
-    fetchTaxLienBBLs(priorityBBLs),
-    fetchDOBViolationCounts(priorityBBLs),
-    fetchHousingCourtCounts(priorityBBLs),
-  ])
-  console.log(`[pipeline] Tax liens: ${taxLienSet.size}, DOB violations: ${dobMap.size} BBLs, Housing court: ${courtMap.size} BBLs (${Date.now() - tPhaseC}ms)`)
-
-  // Step 6: Phase D — DOF market values (priority BBLs)
-  console.log("[pipeline] Fetching DOF market values...")
-  const tDOF = Date.now()
-  const dofMap = await fetchDOFMarketValues(priorityBBLs)
-  console.log(`[pipeline] DOF market values: ${dofMap.size} records (${Date.now() - tDOF}ms)`)
-
-  // Step 6.5: Phase E — NY DOS LLC entity lookup (priority BBLs with LLC owner names)
-  console.log("[pipeline] Fetching NY DOS entity info for LLC-owned properties...")
-  const tDOS = Date.now()
-  const ownersByBBL = new Map<string, string>()
-  for (const [bbl, acris] of acrisMap) {
-    if (acris.ownerName) ownersByBBL.set(bbl, acris.ownerName)
+  try {
+    console.log("[pipeline] Fetching Phase C distress signals (tax liens, DOB, housing court)...")
+    const results = await Promise.allSettled([
+      fetchTaxLienBBLs(priorityBBLs),
+      fetchDOBViolationCounts(priorityBBLs),
+      fetchHousingCourtCounts(priorityBBLs),
+    ])
+    if (results[0].status === "fulfilled") taxLienSet = results[0].value
+    else console.warn(`[pipeline] Tax liens failed: ${results[0].reason}`)
+    if (results[1].status === "fulfilled") dobMap = results[1].value
+    else console.warn(`[pipeline] DOB violations failed: ${results[1].reason}`)
+    if (results[2].status === "fulfilled") courtMap = results[2].value
+    else console.warn(`[pipeline] Housing court failed: ${results[2].reason}`)
+    console.log(`[pipeline] Tax liens: ${taxLienSet.size}, DOB: ${dobMap.size} BBLs, Court: ${courtMap.size} BBLs (${Date.now() - tPhaseC}ms)`)
+  } catch (err) {
+    console.warn(`[pipeline] Phase C distress signals failed (non-fatal): ${err}`)
   }
-  const dosMap = await fetchDOSEntityInfo(ownersByBBL)
-  if (dosMap.size > 0) {
-    await upsertDOSEntities(dosMap)
+
+  // Step 6: Phase D — DOF market values (priority BBLs, non-fatal)
+  let dofMap = new Map<string, number>()
+  try {
+    console.log("[pipeline] Fetching DOF market values...")
+    const tDOF = Date.now()
+    dofMap = await fetchDOFMarketValues(priorityBBLs)
+    console.log(`[pipeline] DOF market values: ${dofMap.size} records (${Date.now() - tDOF}ms)`)
+  } catch (err) {
+    console.warn(`[pipeline] DOF market values failed (non-fatal): ${err}`)
   }
-  console.log(`[pipeline] DOS entity lookup: ${dosMap.size} records (${Date.now() - tDOS}ms)`)
+
+  // Step 6.5: Phase E — NY DOS LLC entity lookup (non-fatal)
+  try {
+    console.log("[pipeline] Fetching NY DOS entity info for LLC-owned properties...")
+    const tDOS = Date.now()
+    const ownersByBBL = new Map<string, string>()
+    for (const [bbl, acris] of acrisMap) {
+      if (acris.ownerName) ownersByBBL.set(bbl, acris.ownerName)
+    }
+    const dosMap = await fetchDOSEntityInfo(ownersByBBL)
+    if (dosMap.size > 0) await upsertDOSEntities(dosMap)
+    console.log(`[pipeline] DOS entity lookup: ${dosMap.size} records (${Date.now() - tDOS}ms)`)
+  } catch (err) {
+    console.warn(`[pipeline] DOS entity lookup failed (non-fatal): ${err}`)
+  }
 
   // Upsert distress enrichment (exemptions + acris_records updates)
   await upsertDistressEnrichment(targetRecords, taxLienSet, dobMap, courtMap, dofMap)

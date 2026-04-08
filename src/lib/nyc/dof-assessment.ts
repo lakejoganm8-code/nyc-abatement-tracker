@@ -28,15 +28,6 @@ async function runChunked<T>(
   return results
 }
 
-function buildDOFOrClause(bbls: string[]): string {
-  return bbls
-    .map((b) => {
-      const { boro, block, lot } = parseBBLParts(b)
-      return `(borocode='${boro}' AND block='${block}' AND lot='${lot}')`
-    })
-    .join(" OR ")
-}
-
 /**
  * Returns a map of BBL → DOF market value estimate (in dollars).
  */
@@ -44,20 +35,26 @@ export async function fetchDOFMarketValues(bbls: string[]): Promise<Map<string, 
   const client = getSocrataClient()
   const result = new Map<string, number>()
 
+  // Dataset uses boro/block/lot (not borocode), market value is pymkttot
   const rows = await runChunked(bbls, CHUNK_SIZE, CONCURRENCY, (chunk) => {
-    const where = buildDOFOrClause(chunk)
+    const where = chunk
+      .map((b) => {
+        const { boro, block, lot } = parseBBLParts(b)
+        return `(boro='${boro}' AND block='${block}' AND lot='${lot}')`
+      })
+      .join(" OR ")
     return client.fetchAll(DATASET, {
       $where: where,
-      $select: "borocode,block,lot,curmkttot",
+      $select: "boro,block,lot,pymkttot",
     }) as Promise<Record<string, string>[]>
   })
 
   for (const row of rows) {
-    const boro = row.borocode ?? "0"
+    const boro = row.boro ?? "0"
     const block = (row.block ?? "0").padStart(5, "0")
     const lot = (row.lot ?? "0").padStart(4, "0")
     const bbl = `${boro}${block}${lot}`
-    const val = parseInt(row.curmkttot ?? "0", 10)
+    const val = parseInt(row.pymkttot ?? "0", 10)
     if (val > 0) result.set(bbl, val)
   }
 

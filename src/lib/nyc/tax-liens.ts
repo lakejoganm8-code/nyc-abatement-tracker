@@ -1,5 +1,5 @@
 import { getSocrataClient } from "./socrata"
-import { parseBBLParts } from "./bbl-utils"
+import { parseBBLParts, buildACRISOrClause } from "./bbl-utils"
 
 // NYC Tax Lien Sale List — dataset 9rz4-mjek
 // Properties with unpaid property tax or water/sewer liens eligible for NYC tax lien sale.
@@ -28,28 +28,27 @@ async function runChunked<T>(
   return results
 }
 
-function buildTaxLienOrClause(bbls: string[]): string {
-  // Tax lien dataset has a direct `bbl` column (10-digit string)
-  const inList = bbls.map((b) => `'${b}'`).join(",")
-  return `bbl IN (${inList})`
-}
-
 /**
  * Returns a Set of BBLs that appear on the current tax lien sale list.
+ * Dataset uses borough/block/lot columns (same layout as ACRIS).
  */
 export async function fetchTaxLienBBLs(bbls: string[]): Promise<Set<string>> {
   const client = getSocrataClient()
   const result = new Set<string>()
 
   const rows = await runChunked(bbls, CHUNK_SIZE, CONCURRENCY, (chunk) => {
+    const where = buildACRISOrClause(chunk)  // borough/block/lot
     return client.fetchAll(DATASET, {
-      $where: buildTaxLienOrClause(chunk),
-      $select: "bbl",
+      $where: where,
+      $select: "borough,block,lot",
     }) as Promise<Record<string, string>[]>
   })
 
   for (const row of rows) {
-    if (row.bbl) result.add(row.bbl.replace(/\D/g, "").padStart(10, "0"))
+    const boro = row.borough ?? "0"
+    const block = (row.block ?? "0").padStart(5, "0")
+    const lot = (row.lot ?? "0").padStart(4, "0")
+    result.add(`${boro}${block}${lot}`)
   }
 
   return result
