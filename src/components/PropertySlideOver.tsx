@@ -41,13 +41,11 @@ interface PropertyData {
   neighborhood: string | null
   registration_status: string | null
   edge_case_flags: string[]
-  // Phase B: HPD contacts
+  // Phase B: HPD contacts (phone not in dataset)
   hpd_owner_name: string | null
-  hpd_owner_phone: string | null
   hpd_owner_address: string | null
   hpd_owner_type: string | null
   hpd_agent_name: string | null
-  hpd_agent_phone: string | null
   hpd_agent_address: string | null
   // Phase C: distress signals
   has_tax_lien: boolean
@@ -251,31 +249,13 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
               {(property.hpd_owner_name || property.hpd_agent_name) && (
                 <Section title="Contact" icon={<Phone className="size-3.5" />}>
                   {property.hpd_owner_name && (
-                    <Row label="Owner" value={
-                      <span className="text-right">
-                        <span className="block">{property.hpd_owner_name}</span>
-                        {property.hpd_owner_phone && (
-                          <a href={`tel:${property.hpd_owner_phone}`} className="text-sky-400 hover:underline font-mono">
-                            {property.hpd_owner_phone}
-                          </a>
-                        )}
-                      </span>
-                    } />
+                    <Row label="Owner" value={property.hpd_owner_name} />
                   )}
                   {property.hpd_owner_address && (
                     <Row label="Owner address" value={property.hpd_owner_address} />
                   )}
                   {property.hpd_agent_name && (
-                    <Row label="Managing agent" value={
-                      <span className="text-right">
-                        <span className="block">{property.hpd_agent_name}</span>
-                        {property.hpd_agent_phone && (
-                          <a href={`tel:${property.hpd_agent_phone}`} className="text-sky-400 hover:underline font-mono">
-                            {property.hpd_agent_phone}
-                          </a>
-                        )}
-                      </span>
-                    } />
+                    <Row label="Managing agent" value={property.hpd_agent_name} />
                   )}
                   {property.hpd_agent_address && (
                     <Row label="Agent address" value={property.hpd_agent_address} />

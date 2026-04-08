@@ -10,10 +10,10 @@ export interface HPDContact {
   registrationId: string
   ownerName: string | null
   ownerType: string | null
-  ownerPhone: string | null
+  ownerPhone: null  // not in dataset as of 2026
   ownerMailingAddress: string | null
   agentName: string | null
-  agentPhone: string | null
+  agentPhone: null  // not in dataset as of 2026
   agentAddress: string | null
 }
 
@@ -41,7 +41,7 @@ export async function fetchHPDContacts(
 
     const rows = await client.fetchAll(DATASET, {
       $where: `registrationid IN (${inClause})`,
-      $select: "registrationid,type,contactdescription,firstname,lastname,corporationname,businesshousenumber,businessstreetname,businessapartment,businesscity,businessstate,businesszip,businessphone",
+      $select: "registrationid,type,contactdescription,firstname,lastname,corporationname,businesshousenumber,businessstreetname,businessapartment,businesscity,businessstate,businesszip",
     }) as Record<string, string>[]
 
     // Group by registrationid — we want one "owner" contact and one "agent" contact per building
@@ -86,25 +86,15 @@ export async function fetchHPDContacts(
         return parts.length ? parts.join(", ") : null
       }
 
-      const formatPhone = (row: Record<string, string> | undefined): string | null => {
-        const raw = row?.businessphone ?? ""
-        if (!raw || raw.length < 7) return null
-        // Format: strip non-digits, format as (XXX) XXX-XXXX
-        const digits = raw.replace(/\D/g, "")
-        if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-        if (digits.length === 11 && digits[0] === "1") return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-        return raw
-      }
-
       result.set(bbl, {
         bbl,
         registrationId: regId,
         ownerName: formatName(ownerRow),
         ownerType: ownerRow ? (ownerRow.type ?? null) : null,
-        ownerPhone: formatPhone(ownerRow),
+        ownerPhone: null,
         ownerMailingAddress: formatAddress(ownerRow),
         agentName: formatName(agentRow),
-        agentPhone: formatPhone(agentRow),
+        agentPhone: null,
         agentAddress: formatAddress(agentRow),
       })
     }

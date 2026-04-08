@@ -45,9 +45,7 @@ export interface PropertyRow {
   condo_unit_count: number | null
   // Phase B
   hpd_owner_name: string | null
-  hpd_owner_phone: string | null
   hpd_agent_name: string | null
-  hpd_agent_phone: string | null
   // Phase C
   has_tax_lien: boolean
   dob_violation_count: number

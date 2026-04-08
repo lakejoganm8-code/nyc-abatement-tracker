@@ -224,10 +224,8 @@ async function upsertHPDContacts(contactMap: Map<string, HPDContact>): Promise<n
     registration_id: c.registrationId,
     owner_name: c.ownerName,
     owner_type: c.ownerType,
-    owner_phone: c.ownerPhone,
     owner_mailing_address: c.ownerMailingAddress,
     agent_name: c.agentName,
-    agent_phone: c.agentPhone,
     agent_address: c.agentAddress,
     fetched_at: new Date().toISOString(),
   }))
