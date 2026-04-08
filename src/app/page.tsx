@@ -78,7 +78,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               <span className="text-primary-foreground text-[10px] font-bold tracking-tighter">AT</span>
             </div>
             <span className="text-sm font-semibold tracking-tight text-foreground">NYC Abatement Tracker</span>
-            <span className="text-[11px] text-muted-foreground hidden sm:block">— 421-a &amp; J-51 expiration pipeline</span>
+            <span className="text-[11px] text-muted-foreground hidden sm:block">— motivated seller pipeline · 421-a &amp; J-51 expirations</span>
           </div>
           <div className="text-[11px] text-muted-foreground font-mono">
             {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}

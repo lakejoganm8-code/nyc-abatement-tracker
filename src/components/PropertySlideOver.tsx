@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, ExternalLink, TrendingDown, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone } from "lucide-react"
+import { X, ExternalLink, TrendingDown, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface PropertyData {
@@ -234,6 +234,71 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
             <p className="text-sm text-muted-foreground text-center py-8">Property not found.</p>
           ) : (
             <>
+              {/* Expiration impact — the thesis */}
+              <div className="rounded-md border border-amber-500/20 bg-amber-950/15 px-4 py-3 space-y-3">
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-amber-400/80 flex items-center gap-1.5">
+                  <Zap className="size-3" /> What happens at expiration
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] text-muted-foreground">Tax increase</div>
+                    <div className="font-mono text-base font-bold text-amber-300">
+                      +{fmt$(property.annual_exempt_amount)}<span className="text-[10px] font-normal text-muted-foreground">/yr</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">permanent, annual</div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] text-muted-foreground">Effective</div>
+                    <div className={cn("font-mono text-base font-bold",
+                      (property.expiration_year ?? 9999) <= CURRENT_YEAR + 1 ? "text-red-400" :
+                      (property.expiration_year ?? 9999) <= CURRENT_YEAR + 2 ? "text-amber-400" :
+                      "text-emerald-400"
+                    )}>
+                      {property.expiration_year ?? "—"}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {property.expiration_status === "IN_PHASE_OUT" ? "already phasing out" : "abatement end"}
+                    </div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] text-muted-foreground">Rent upside</div>
+                    <div className="font-mono text-base font-bold text-emerald-400">
+                      {fmtUpside(property.estimated_annual_rent_upside)}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {property.deregulation_risk ? `${property.deregulation_risk} dereg risk` : "est. annual gain"}
+                    </div>
+                  </div>
+                </div>
+                {property.last_mortgage_amount && (
+                  <div className="border-t border-amber-500/10 pt-2.5 grid grid-cols-3 gap-3">
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] text-muted-foreground">Mortgage</div>
+                      <div className="font-mono text-sm font-semibold text-foreground/90">{fmt$(property.last_mortgage_amount)}</div>
+                      {property.lender_name && <div className="text-[10px] text-muted-foreground truncate">{property.lender_name}</div>}
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] text-muted-foreground">Purchased</div>
+                      <div className="font-mono text-sm font-semibold text-foreground/90">{fmt$(property.last_sale_price)}</div>
+                      {property.last_deed_date && (
+                        <div className="text-[10px] text-muted-foreground">{new Date(property.last_deed_date).getFullYear()}</div>
+                      )}
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] text-muted-foreground">Years held</div>
+                      <div className={cn("font-mono text-sm font-semibold",
+                        (property.ownership_years ?? 0) >= 20 ? "text-amber-400" : "text-foreground/90"
+                      )}>
+                        {property.ownership_years ? `${property.ownership_years} yrs` : "—"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {(property.ownership_years ?? 0) >= 20 ? "long hold — seller fatigue?" : "since acquisition"}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Score breakdown */}
               <Section title="Distress Score" icon={<BarChart3 className="size-3.5" />}>
                 <ScoreBar label="Tax Impact"          value={property.tax_impact_component ?? 0}        weight="25%" />

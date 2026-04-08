@@ -77,9 +77,14 @@ export function DashboardView({ data, searchParams }: DashboardViewProps) {
     (p) => p.expiration_year != null && p.expiration_year <= currentYear + 1
   ).length
 
-  const totalExempt = data.reduce((s, p) => s + (p.annual_exempt_amount ?? 0), 0)
+  const totalTaxShock = data.reduce((s, p) => s + (p.annual_exempt_amount ?? 0), 0)
   const totalUpside = data.reduce((s, p) => s + (p.estimated_annual_rent_upside ?? 0), 0)
   const highRisk = data.filter((p) => p.deregulation_risk === "high").length
+  const avgOwnership = (() => {
+    const withData = data.filter((p) => p.ownership_years != null)
+    if (!withData.length) return null
+    return Math.round(withData.reduce((s, p) => s + (p.ownership_years ?? 0), 0) / withData.length)
+  })()
 
   const handleRowClick = useCallback((bbl: string) => {
     setSelectedBBL(bbl)
@@ -87,6 +92,12 @@ export function DashboardView({ data, searchParams }: DashboardViewProps) {
 
   return (
     <div className="space-y-4">
+      {/* Thesis line */}
+      <p className="text-[12px] text-muted-foreground leading-relaxed border-l-2 border-border/60 pl-3">
+        Properties where expiring 421-a &amp; J-51 abatements will force a sudden property tax increase —
+        creating financially motivated sellers. Click any row for owner contact, debt, and deal signals.
+      </p>
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
         <StatCard
@@ -98,30 +109,30 @@ export function DashboardView({ data, searchParams }: DashboardViewProps) {
         <StatCard
           label="Expiring ≤ 12 mo"
           value={expiring12mo.toLocaleString()}
-          sub="immediate pipeline"
+          sub="act now — abatement ending"
           accent="red"
           icon={<Clock className="size-3.5" />}
         />
         <StatCard
-          label="Avg Distress"
-          value={avgScore}
-          sub="higher = more urgent"
-          accent={avgScore >= 60 ? "red" : avgScore >= 40 ? "amber" : "default"}
-          icon={<AlertTriangle className="size-3.5" />}
-        />
-        <StatCard
-          label="Total Exempt/yr"
-          value={fmtBig(totalExempt)}
-          sub="expiring tax shield"
+          label="Total tax shock/yr"
+          value={fmtBig(totalTaxShock)}
+          sub="annual increase at expiration"
           accent="amber"
           icon={<TrendingDown className="size-3.5" />}
         />
         <StatCard
-          label="Total Rent Upside"
+          label="Rent upside"
           value={totalUpside > 0 ? fmtBig(totalUpside) + "/yr" : "—"}
-          sub={`${highRisk} high dereg risk`}
+          sub={`${highRisk} buildings: high dereg risk`}
           accent="green"
           icon={<DollarSign className="size-3.5" />}
+        />
+        <StatCard
+          label="Avg ownership"
+          value={avgOwnership != null ? `${avgOwnership} yrs` : "—"}
+          sub="longer hold = seller fatigue"
+          accent={avgOwnership != null && avgOwnership >= 15 ? "amber" : "default"}
+          icon={<AlertTriangle className="size-3.5" />}
         />
       </div>
 

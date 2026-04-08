@@ -113,6 +113,11 @@ function ScorePill({ score }: { score: number }) {
   )
 }
 
+function fmtSaleYear(dateStr: string | null): string {
+  if (!dateStr) return ""
+  return new Date(dateStr).getFullYear().toString()
+}
+
 const COLUMNS = [
   col.accessor("distress_score", {
     header: "Score",
@@ -123,18 +128,15 @@ const COLUMNS = [
     header: "Address",
     cell: (info) => {
       const row = info.row.original
-      const tier = row.ami_tier
       return (
         <div className="min-w-[200px] max-w-[260px]">
           <div className="truncate text-xs font-medium text-foreground">{info.getValue() || row.bbl}</div>
           <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="text-[10px] text-muted-foreground font-mono">
+              {BOROUGH_SHORT[row.borough] ?? row.borough}
+            </span>
             {row.benefit_type && (
-              <span className="text-[10px] text-muted-foreground truncate">{row.benefit_type}</span>
-            )}
-            {tier && tier !== "none" && (
-              <span className="text-[10px] px-1 rounded bg-sky-950/60 text-sky-400 font-mono">
-                {tier === "market" ? "MKT" : tier}
-              </span>
+              <span className="text-[10px] text-muted-foreground/60 truncate">{row.benefit_type}</span>
             )}
             {row.condo_unit_count != null && (
               <span className="text-[10px] px-1 rounded bg-violet-950/60 text-violet-400 font-mono">
@@ -151,83 +153,85 @@ const COLUMNS = [
       )
     },
   }),
-  col.accessor("borough", {
-    header: "Boro",
-    cell: (info) => (
-      <span className="font-mono text-[11px] text-muted-foreground">
-        {BOROUGH_SHORT[info.getValue()] ?? info.getValue()}
-      </span>
-    ),
-  }),
   col.accessor("expiration_year", {
     header: "Expires",
     cell: (info) => {
       const yr = info.getValue()
-      const status = info.row.original.expiration_status
+      const row = info.row.original
       const urgent = yr && yr <= CURRENT_YEAR + 1
       const soon = yr && yr <= CURRENT_YEAR + 2
+      const status = row.expiration_status
       return (
-        <span className={cn(
-          "font-mono text-xs font-semibold tabular-nums",
-          urgent ? "text-red-400" : soon ? "text-amber-400" : "text-emerald-400"
-        )}>
-          {yr ?? "—"}
-        </span>
-      )
-    },
-  }),
-  col.accessor("expiration_status", {
-    header: "Status",
-    enableSorting: false,
-    cell: (info) => {
-      const s = info.getValue()
-      if (!s) return <span className="text-muted-foreground text-[10px]">—</span>
-      const label = s === "IN_PHASE_OUT" ? "Phase-Out" : s.charAt(0) + s.slice(1).toLowerCase()
-      const cls =
-        s === "APPROACHING" ? "text-red-400 bg-red-950/40" :
-        s === "IN_PHASE_OUT" ? "text-amber-400 bg-amber-950/40" :
-        "text-muted-foreground bg-muted/40"
-      return (
-        <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", cls)}>
-          {label}
-        </span>
+        <div>
+          <span className={cn(
+            "font-mono text-xs font-semibold tabular-nums",
+            urgent ? "text-red-400" : soon ? "text-amber-400" : "text-emerald-400"
+          )}>
+            {yr ?? "—"}
+          </span>
+          {status === "IN_PHASE_OUT" && (
+            <div className="text-[10px] text-amber-400/70 font-mono">phase-out</div>
+          )}
+        </div>
       )
     },
   }),
   col.accessor("annual_exempt_amount", {
-    header: "Exempt/yr",
+    header: "Tax shock/yr",
     sortDescFirst: true,
     cell: (info) => (
-      <span className="font-mono text-xs tabular-nums text-foreground/80">
-        {fmt$(info.getValue())}
+      <span className="font-mono text-xs tabular-nums text-amber-300/90 font-semibold">
+        +{fmt$(info.getValue())}
       </span>
     ),
   }),
-  col.accessor("estimated_annual_rent_upside", {
-    header: "Upside/yr",
+  col.accessor("last_sale_price", {
+    header: "Purchased",
     sortDescFirst: true,
+    enableSorting: true,
     cell: (info) => {
-      const v = info.getValue()
+      const price = info.getValue()
+      const row = info.row.original
+      const yr = fmtSaleYear(row.last_deed_date)
+      if (!price) return <span className="text-muted-foreground text-xs">—</span>
       return (
-        <span className={cn("font-mono text-xs tabular-nums", v ? "text-emerald-400 font-semibold" : "text-muted-foreground")}>
-          {fmtUpside(v)}
-        </span>
+        <div>
+          <span className="font-mono text-xs tabular-nums text-foreground/80">{fmt$(price)}</span>
+          {yr && <div className="text-[10px] text-muted-foreground font-mono">{yr}</div>}
+        </div>
       )
     },
   }),
-  col.accessor("deregulation_risk", {
-    header: "Dereg",
-    enableSorting: false,
+  col.accessor("last_mortgage_amount", {
+    header: "Mortgage",
+    sortDescFirst: true,
     cell: (info) => {
-      const r = info.getValue()
-      if (!r) return <span className="text-muted-foreground text-[10px]">—</span>
-      const cls =
-        r === "high"   ? "text-red-400 bg-red-950/50" :
-        r === "medium" ? "text-amber-400 bg-amber-950/50" :
-        "text-emerald-400 bg-emerald-950/50"
+      const amt = info.getValue()
+      const row = info.row.original
+      const lender = row.lender_name
+      if (!amt) return <span className="text-muted-foreground text-xs">—</span>
       return (
-        <span className={cn("text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase", cls)}>
-          {r}
+        <div>
+          <span className="font-mono text-xs tabular-nums text-foreground/80">{fmt$(amt)}</span>
+          {lender && (
+            <div className="text-[10px] text-muted-foreground truncate max-w-[120px]">{lender}</div>
+          )}
+        </div>
+      )
+    },
+  }),
+  col.accessor("ownership_years", {
+    header: "Held",
+    sortDescFirst: true,
+    cell: (info) => {
+      const yrs = info.getValue()
+      if (!yrs) return <span className="text-muted-foreground text-xs">—</span>
+      return (
+        <span className={cn(
+          "font-mono text-xs tabular-nums",
+          yrs >= 20 ? "text-amber-400 font-semibold" : "text-foreground/70"
+        )}>
+          {yrs}y
         </span>
       )
     },
@@ -240,26 +244,39 @@ const COLUMNS = [
       </span>
     ),
   }),
-  col.accessor("violation_count_12mo", {
-    header: "Viol.",
+  col.accessor("estimated_annual_rent_upside", {
+    header: "Rent upside",
     sortDescFirst: true,
     cell: (info) => {
       const v = info.getValue()
+      const row = info.row.original
+      const dereg = row.deregulation_risk
       return (
-        <span className={cn("font-mono text-xs tabular-nums", v >= 10 ? "text-red-400 font-semibold" : v > 0 ? "text-amber-400/80" : "text-muted-foreground")}>
-          {v}
-        </span>
+        <div>
+          <span className={cn("font-mono text-xs tabular-nums", v ? "text-emerald-400 font-semibold" : "text-muted-foreground")}>
+            {fmtUpside(v)}
+          </span>
+          {dereg && (
+            <div className={cn("text-[10px] font-mono",
+              dereg === "high" ? "text-red-400" : dereg === "medium" ? "text-amber-400/70" : "text-muted-foreground"
+            )}>
+              {dereg} dereg
+            </div>
+          )}
+        </div>
       )
     },
   }),
   col.accessor("owner_name", {
-    header: "Owner",
+    header: "Owner (ACRIS)",
     enableSorting: false,
     cell: (info) => {
       const name = info.getValue()
+      const row = info.row.original
+      const display = name ?? row.hpd_owner_name
       return (
-        <span className="text-[11px] text-muted-foreground truncate max-w-[140px] block">
-          {name ?? "—"}
+        <span className="text-[11px] text-muted-foreground truncate max-w-[160px] block">
+          {display ?? "—"}
         </span>
       )
     },
