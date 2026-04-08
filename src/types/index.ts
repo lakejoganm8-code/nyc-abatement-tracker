@@ -63,6 +63,8 @@ export interface ExemptionRecord {
   phaseOutEndYear: number | null
   expirationStatus: ExpirationStatus | null
   edgeCaseFlags: string[]
+  // condo aggregation: number of condo units collapsed into this parent record (null if not a condo building)
+  condoUnitCount: number | null
 }
 
 // ─── ACRIS ────────────────────────────────────────────────────────────────────
@@ -188,7 +190,7 @@ export interface PropertyFilters {
   buildingClass?: string
   minUnits?: number
   owner?: string        // owner name search (ilike)
-  hideCondo?: boolean   // exclude CONDO_BBL flagged properties
+  condoOnly?: boolean   // show only condo buildings (has condo_unit_count > 0)
   limit?: number
   offset?: number
 }

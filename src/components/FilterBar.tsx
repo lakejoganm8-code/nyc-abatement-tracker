@@ -41,7 +41,6 @@ export function FilterBar() {
   const expiresFrom = searchParams.get("expiresFrom") ?? String(CURRENT_YEAR)
   const expiresTo = searchParams.get("expiresTo") ?? String(CURRENT_YEAR + 2)
   const minScore = searchParams.get("minScore") ?? "0"
-  const hideCondo = searchParams.get("hideCondo") === "1"
   const search = searchParams.get("search") ?? ""
 
   const hasFilters = searchParams.toString().length > 0
@@ -143,19 +142,6 @@ export function FilterBar() {
           if (e.key === "Enter") updateParam("owner", (e.target as HTMLInputElement).value || null)
         }}
       />
-
-      <div className="h-4 w-px bg-border/60" />
-
-      {/* Hide condos */}
-      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none group">
-        <input
-          type="checkbox"
-          checked={hideCondo}
-          onChange={(e) => updateParam("hideCondo", e.target.checked ? "1" : null)}
-          className="h-3.5 w-3.5 rounded border-input accent-primary"
-        />
-        <span className="group-hover:text-foreground transition-colors">Hide condos</span>
-      </label>
 
       {/* Clear all */}
       {hasFilters && (

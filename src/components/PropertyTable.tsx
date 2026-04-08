@@ -42,6 +42,7 @@ export interface PropertyRow {
   deregulation_risk: "high" | "medium" | "low" | null
   is_rent_stabilized: boolean | null
   stabilization_source: string | null
+  condo_unit_count: number | null
 }
 
 const col = createColumnHelper<PropertyRow>()
@@ -120,6 +121,11 @@ const COLUMNS = [
             {tier && tier !== "none" && (
               <span className="text-[10px] px-1 rounded bg-sky-950/60 text-sky-400 font-mono">
                 {tier === "market" ? "MKT" : tier}
+              </span>
+            )}
+            {row.condo_unit_count != null && (
+              <span className="text-[10px] px-1 rounded bg-violet-950/60 text-violet-400 font-mono">
+                {row.condo_unit_count}u condo
               </span>
             )}
           </div>

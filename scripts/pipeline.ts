@@ -76,6 +76,7 @@ async function upsertExemptions(records: ExemptionRecord[]): Promise<number> {
     phase_out_end_year: r.phaseOutEndYear,
     expiration_status: r.expirationStatus,
     edge_case_flags: r.edgeCaseFlags,
+    condo_unit_count: r.condoUnitCount ?? null,
     updated_at: new Date().toISOString(),
   }))
 
@@ -291,7 +292,9 @@ async function main() {
   const targetRecords = allProcessed.filter(
     (r) => r.expirationStatus === "APPROACHING" || r.expirationStatus === "IN_PHASE_OUT"
   )
-  console.log(`[pipeline] ${targetRecords.length} properties in target window`)
+  const condoParents = targetRecords.filter((r) => r.condoUnitCount !== null).length
+  const totalCondoUnits = targetRecords.reduce((s, r) => s + (r.condoUnitCount ?? 0), 0)
+  console.log(`[pipeline] ${targetRecords.length} properties in target window (${condoParents} condo buildings, ${totalCondoUnits} units collapsed)`)
 
   const t2 = Date.now()
   const exemptCount = await upsertExemptions(targetRecords)

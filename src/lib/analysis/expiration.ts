@@ -88,11 +88,22 @@ export function parseBBL(parid: string): { boro: string; block: string; lot: str
   }
 }
 
+/**
+ * True condo unit BBLs: NYC DOF assigns lots 1001-7499 to individual condo units.
+ * Lots 1-999 are regular tax lots (whole buildings, garages, stores, etc.).
+ * Lot 0001 is the condo master/parent lot (the whole building).
+ */
 export function isCondoBBL(parid: string): boolean {
   const parts = parseBBL(parid)
   if (!parts) return false
   const lot = parseInt(parts.lot, 10)
-  return lot >= 1 && lot <= 1000
+  return lot >= 1001 && lot <= 7499
+}
+
+/** Return the parent/master BBL for a condo unit (same boro+block, lot 0001) */
+export function getParentBBL(parid: string): string {
+  const clean = parid.replace(/\D/g, "").padStart(10, "0")
+  return clean.slice(0, 6) + "0001"
 }
 
 /** Strip leading "+" and parse numeric string from basetot / benftstart */
@@ -122,6 +133,11 @@ function buildBenefitType(code: string, noYears: number): BenefitType | null {
  * Groups by BBL (parid), deduplicates by taking the most recent tax year,
  * and computes expiration dates using the `benftstart` + `no_years` fields
  * directly from the dataset.
+ *
+ * Condo handling: NYC assigns lots 1001-7499 to individual condo units.
+ * These are collapsed into their parent lot (same boro+block, lot 0001).
+ * The parent record receives the sum of all unit exempt amounts and a
+ * `condoUnitCount` reflecting how many units were merged.
  */
 export function processExemptions(
   rows: RawExemption[],
@@ -136,7 +152,8 @@ export function processExemptions(
     byBBL.get(bbl)!.push(row)
   }
 
-  const results: ExemptionRecord[] = []
+  // ── Pass 1: process every BBL independently ──────────────────────────────
+  const recordsByBBL = new Map<string, ExemptionRecord>()
 
   for (const [bbl, bblRows] of byBBL) {
     const flags: string[] = []
@@ -158,8 +175,9 @@ export function processExemptions(
     const startYear = parseNumericField(latest.benftstart)
     if (!startYear) flags.push("MISSING_START_YEAR")
 
-    // Condo check
-    if (isCondoBBL(bbl)) flags.push("CONDO_BBL")
+    // True condo unit: lots 1001–7499
+    const isCondo = isCondoBBL(bbl)
+    if (isCondo) flags.push("CONDO_BBL")
 
     // Compute expiration
     let expirationYear: number | null = null
@@ -183,7 +201,7 @@ export function processExemptions(
     const boroCode = parseBBL(bbl)?.boro ?? latest.boro ?? null
     const borough = boroCode ? (BOROUGH_CODES[boroCode] as Borough) : null
 
-    results.push({
+    recordsByBBL.set(bbl, {
       bbl,
       address: `BBL ${bbl}`, // address comes from PLUTO join in property_pipeline view
       borough,
@@ -199,10 +217,66 @@ export function processExemptions(
       phaseOutEndYear,
       expirationStatus: status,
       edgeCaseFlags: flags,
+      condoUnitCount: null,
     })
   }
 
-  return results
+  // ── Pass 2: collapse condo units (lots 1001-7499) into their parent lot ──
+  // Track condo units grouped by parent BBL
+  const condoByParent = new Map<string, ExemptionRecord[]>()
+  const nonCondoRecords: ExemptionRecord[] = []
+
+  for (const record of recordsByBBL.values()) {
+    if (record.edgeCaseFlags.includes("CONDO_BBL")) {
+      const parentBBL = getParentBBL(record.bbl)
+      if (!condoByParent.has(parentBBL)) condoByParent.set(parentBBL, [])
+      condoByParent.get(parentBBL)!.push(record)
+    } else {
+      nonCondoRecords.push(record)
+    }
+  }
+
+  // Merge condo units into parent records (or synthesize a parent if none exists)
+  for (const [parentBBL, units] of condoByParent) {
+    const existingParent = recordsByBBL.get(parentBBL)
+
+    // Sum exempt amounts across all units
+    const totalExempt = units.reduce((s, u) => s + u.annualExemptAmount, 0)
+    const totalAssessed = units.reduce((s, u) => s + u.assessedValue, 0)
+    // Use the earliest expiration year (most urgent unit drives the timeline)
+    const earliestExpiry = units
+      .map((u) => u.expirationYear)
+      .filter((y): y is number => y !== null)
+      .sort((a, b) => a - b)[0] ?? null
+
+    if (existingParent) {
+      // Parent lot already has its own exemption record — enrich it
+      existingParent.annualExemptAmount += totalExempt
+      existingParent.assessedValue += totalAssessed
+      existingParent.condoUnitCount = units.length
+      // If parent expires later than some units, use earliest
+      if (earliestExpiry && (!existingParent.expirationYear || earliestExpiry < existingParent.expirationYear)) {
+        existingParent.expirationYear = earliestExpiry
+      }
+    } else {
+      // No parent lot in dataset — synthesize one from the representative unit
+      const rep = units.sort((a, b) =>
+        (b.annualExemptAmount) - (a.annualExemptAmount)
+      )[0]
+      const syntheticFlags = rep.edgeCaseFlags.filter((f) => f !== "CONDO_BBL")
+      nonCondoRecords.push({
+        ...rep,
+        bbl: parentBBL,
+        annualExemptAmount: totalExempt,
+        assessedValue: totalAssessed,
+        expirationYear: earliestExpiry,
+        edgeCaseFlags: syntheticFlags,
+        condoUnitCount: units.length,
+      })
+    }
+  }
+
+  return nonCondoRecords
 }
 
 /**
