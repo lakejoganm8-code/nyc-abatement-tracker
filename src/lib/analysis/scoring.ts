@@ -1,5 +1,7 @@
 import { SCORE_WEIGHTS } from "./config"
 import { inferAMITier, computeRentUpside, assessDeregulationRisk } from "./rent-upside"
+import { computeValuation } from "./income"
+import { buildOwnerProfile, buildPortfolioMap } from "./owner-profile"
 import type { ExemptionRecord, HPDData, ACRISRecord, PLUTOData, PropertyScore, ScoreComponents } from "@/types"
 
 // ─── Normalization helpers ────────────────────────────────────────────────────
@@ -101,6 +103,9 @@ export interface ScoringExtra {
   hpActionCount: number
   nonpaymentCount: number
   dofMarketValue?: number | null
+  portfolioSize?: number
+  totalPortfolioTaxShock?: number
+  portfolioBoroughs?: string[]
 }
 
 export function scoreProperty(
@@ -141,6 +146,32 @@ export function scoreProperty(
   const estimatedAnnualRentUpside = computeRentUpside(totalUnits, exemption.exemptionCode)
   const deregulationRisk = assessDeregulationRisk(exemption.exemptionCode, pluto?.yearBuilt ?? null)
 
+  // Valuation
+  const valuation = computeValuation({
+    borough: exemption.borough,
+    totalUnits,
+    annualExemptAmount: exemption.annualExemptAmount,
+    assessedValue: exemption.assessedValue,
+    dofMarketValue: extra?.dofMarketValue ?? null,
+    exemptionCode: exemption.exemptionCode,
+  })
+
+  // Owner profile
+  const ownerName = acris?.ownerName ?? null
+  const profile = buildOwnerProfile({
+    ownerName,
+    portfolioSize: extra?.portfolioSize ?? 1,
+    totalPortfolioTaxShock: extra?.totalPortfolioTaxShock ?? exemption.annualExemptAmount,
+    portfolioBoroughs: extra?.portfolioBoroughs ?? (exemption.borough ? [exemption.borough] : []),
+    mortgageDate: acris?.mortgageDate ?? null,
+    expirationYear: exemption.expirationYear,
+    ownershipYears: acris?.ownershipYears ?? null,
+    hasLien: extra?.hasLien ?? false,
+    deregulationRisk,
+    dosEntityStatus: null,  // not in scoring context — used in slide-over
+    dosDateOfFormation: null,
+  })
+
   return {
     bbl: exemption.bbl,
     distressScore: Math.round(distressScore * 10) / 10,
@@ -149,11 +180,29 @@ export function scoreProperty(
     deregulationRisk,
     amiTier,
     scoredAt: new Date().toISOString(),
+    // Valuation
+    grossRentEstimate: valuation?.grossRentEstimate ?? null,
+    noiCurrent: valuation?.noiCurrent ?? null,
+    noiPostExpiration: valuation?.noiPostExpiration ?? null,
+    impliedValueCurrent: valuation?.impliedValueCurrent ?? null,
+    impliedValuePostExpiration: valuation?.impliedValuePostExpiration ?? null,
+    valueDelta: valuation?.valueDelta ?? null,
+    breakEvenOccupancy: valuation?.breakEvenOccupancy ?? null,
+    // Owner profile
+    ownerType: profile.ownerType,
+    portfolioSize: profile.portfolioSize,
+    totalPortfolioTaxShock: profile.totalPortfolioTaxShock,
+    refiPressure: profile.refiPressure,
+    sellLikelihoodScore: profile.sellLikelihoodScore,
+    sellLikelihoodLabel: profile.sellLikelihoodLabel,
+    sellSignals: profile.sellSignals,
+    suppressFromLeads: profile.suppressFromLeads,
   }
 }
 
 /**
  * Score a batch of exemptions and return sorted by distress score descending.
+ * Builds a portfolio map from all exemptions to enrich owner profiles.
  */
 export function scoreAll(
   exemptions: ExemptionRecord[],
@@ -162,13 +211,35 @@ export function scoreAll(
   plutoMap: Map<string, PLUTOData>,
   extraMap?: Map<string, ScoringExtra>
 ): PropertyScore[] {
+  // Build portfolio map across all properties (owner name → count + tax shock)
+  const portfolioMap = buildPortfolioMap(
+    exemptions.map((e) => ({
+      bbl: e.bbl,
+      owner_name: acrisMap.get(e.bbl)?.ownerName ?? null,
+      annual_exempt_amount: e.annualExemptAmount,
+      borough: e.borough,
+    }))
+  )
+
   return exemptions
-    .map((e) => scoreProperty(
-      e,
-      hpdMap.get(e.bbl) ?? null,
-      acrisMap.get(e.bbl) ?? null,
-      plutoMap.get(e.bbl) ?? null,
-      extraMap?.get(e.bbl),
-    ))
+    .map((e) => {
+      const ownerName = acrisMap.get(e.bbl)?.ownerName?.trim().toUpperCase() ?? null
+      const portfolio = ownerName ? portfolioMap.get(ownerName) : null
+      const base = extraMap?.get(e.bbl) ?? {
+        hasLien: false, dobViolationCount: 0, hpActionCount: 0, nonpaymentCount: 0,
+      }
+      return scoreProperty(
+        e,
+        hpdMap.get(e.bbl) ?? null,
+        acrisMap.get(e.bbl) ?? null,
+        plutoMap.get(e.bbl) ?? null,
+        {
+          ...base,
+          portfolioSize: portfolio?.count ?? 1,
+          totalPortfolioTaxShock: portfolio?.totalTaxShock ?? e.annualExemptAmount,
+          portfolioBoroughs: portfolio?.boroughs ?? (e.borough ? [e.borough] : []),
+        },
+      )
+    })
     .sort((a, b) => b.distressScore - a.distressScore)
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, ExternalLink, TrendingDown, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone, Zap } from "lucide-react"
+import { X, ExternalLink, TrendingDown, TrendingUp, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone, Zap, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface PropertyData {
@@ -61,6 +61,24 @@ interface PropertyData {
   dos_agent_address: string | null
   dos_search_url: string | null
   dos_date_of_formation: string | null
+  // Valuation
+  gross_rent_estimate: number | null
+  noi_current: number | null
+  noi_post_expiration: number | null
+  implied_value_current: number | null
+  implied_value_post_expiration: number | null
+  value_delta: number | null
+  break_even_occupancy: number | null
+  estimated_market_value: number | null
+  // Owner profile
+  owner_type: string | null
+  portfolio_size: number | null
+  total_portfolio_tax_shock: number | null
+  refi_pressure: boolean
+  sell_likelihood_score: number | null
+  sell_likelihood_label: string | null
+  sell_signals: string[] | null
+  suppress_from_leads: boolean
 }
 
 interface PropertySlideOverProps {
@@ -270,34 +288,130 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                     </div>
                   </div>
                 </div>
-                {property.last_mortgage_amount && (
-                  <div className="border-t border-amber-500/10 pt-2.5 grid grid-cols-3 gap-3">
-                    <div className="space-y-0.5">
-                      <div className="text-[10px] text-muted-foreground">Mortgage</div>
-                      <div className="font-mono text-sm font-semibold text-foreground/90">{fmt$(property.last_mortgage_amount)}</div>
-                      {property.lender_name && <div className="text-[10px] text-muted-foreground truncate">{property.lender_name}</div>}
+                <div className="border-t border-amber-500/10 pt-2.5 grid grid-cols-3 gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] text-muted-foreground">Purchased</div>
+                    <div className="font-mono text-sm font-semibold text-foreground/90">{fmt$(property.last_sale_price)}</div>
+                    {property.last_deed_date && (
+                      <div className="text-[10px] text-muted-foreground">{new Date(property.last_deed_date).getFullYear()}</div>
+                    )}
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] text-muted-foreground">Mortgage</div>
+                    <div className="font-mono text-sm font-semibold text-foreground/90">{fmt$(property.last_mortgage_amount)}</div>
+                    {property.lender_name && <div className="text-[10px] text-muted-foreground truncate">{property.lender_name}</div>}
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] text-muted-foreground">Years held</div>
+                    <div className={cn("font-mono text-sm font-semibold",
+                      (property.ownership_years ?? 0) >= 20 ? "text-amber-400" : "text-foreground/90"
+                    )}>
+                      {property.ownership_years ? `${property.ownership_years} yrs` : "—"}
                     </div>
-                    <div className="space-y-0.5">
-                      <div className="text-[10px] text-muted-foreground">Purchased</div>
-                      <div className="font-mono text-sm font-semibold text-foreground/90">{fmt$(property.last_sale_price)}</div>
-                      {property.last_deed_date && (
-                        <div className="text-[10px] text-muted-foreground">{new Date(property.last_deed_date).getFullYear()}</div>
-                      )}
-                    </div>
-                    <div className="space-y-0.5">
-                      <div className="text-[10px] text-muted-foreground">Years held</div>
-                      <div className={cn("font-mono text-sm font-semibold",
-                        (property.ownership_years ?? 0) >= 20 ? "text-amber-400" : "text-foreground/90"
-                      )}>
-                        {property.ownership_years ? `${property.ownership_years} yrs` : "—"}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {(property.ownership_years ?? 0) >= 20 ? "long hold — seller fatigue?" : "since acquisition"}
-                      </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {(property.ownership_years ?? 0) >= 20 ? "long hold — seller fatigue?" : "since acquisition"}
                     </div>
                   </div>
-                )}
+                </div>
               </div>
+
+              {/* Implied Valuation */}
+              {property.implied_value_current != null && (
+                <Section title="Implied Valuation (Estimate)" icon={<TrendingUp className="size-3.5" />}>
+                  <div className="py-2 grid grid-cols-2 gap-x-4 gap-y-0">
+                    <div className="py-1.5 border-b border-border/20">
+                      <div className="text-[10px] text-muted-foreground mb-0.5">Gross rent estimate</div>
+                      <div className="font-mono text-xs font-semibold">{fmt$(property.gross_rent_estimate)}<span className="text-muted-foreground font-normal">/yr</span></div>
+                    </div>
+                    <div className="py-1.5 border-b border-border/20">
+                      <div className="text-[10px] text-muted-foreground mb-0.5">NOI (w/ abatement)</div>
+                      <div className={cn("font-mono text-xs font-semibold", (property.noi_current ?? 0) > 0 ? "" : "text-red-400")}>{fmt$(property.noi_current)}<span className="text-muted-foreground font-normal">/yr</span></div>
+                    </div>
+                    <div className="py-1.5 border-b border-border/20">
+                      <div className="text-[10px] text-muted-foreground mb-0.5">NOI post-expiration</div>
+                      <div className={cn("font-mono text-xs font-semibold", (property.noi_post_expiration ?? 0) > 0 ? "text-amber-300" : "text-red-400")}>{fmt$(property.noi_post_expiration)}<span className="text-muted-foreground font-normal">/yr</span></div>
+                    </div>
+                    <div className="py-1.5 border-b border-border/20">
+                      <div className="text-[10px] text-muted-foreground mb-0.5">Break-even occupancy</div>
+                      <div className={cn("font-mono text-xs font-semibold", (property.break_even_occupancy ?? 0) > 0.90 ? "text-red-400" : "text-amber-300")}>
+                        {property.break_even_occupancy != null ? `${(property.break_even_occupancy * 100).toFixed(0)}%` : "—"}
+                      </div>
+                    </div>
+                    <div className="py-1.5 border-b border-border/20">
+                      <div className="text-[10px] text-muted-foreground mb-0.5">Implied value now</div>
+                      <div className="font-mono text-xs font-semibold text-emerald-400">{fmt$(property.implied_value_current)}</div>
+                    </div>
+                    <div className="py-1.5 border-b border-border/20">
+                      <div className="text-[10px] text-muted-foreground mb-0.5">Implied value at expiry</div>
+                      <div className="font-mono text-xs font-semibold text-red-400">{fmt$(property.implied_value_post_expiration)}</div>
+                    </div>
+                  </div>
+                  <div className="py-2 flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">Value destroyed at expiration</span>
+                    <span className="font-mono text-sm font-bold text-red-400">
+                      {property.value_delta != null ? `-${fmt$(property.value_delta)}` : "—"}
+                    </span>
+                  </div>
+                  {property.estimated_market_value != null && (
+                    <div className="pb-1.5 flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground">DOF market value (reference)</span>
+                      <span className="font-mono text-xs text-muted-foreground">{fmt$(property.estimated_market_value)}</span>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground/50 pb-1 leading-relaxed">
+                    Estimates use RGB avg stabilized rents × units, 30% expense ratio, NYC Class 2 tax rate. Individual results vary.
+                  </p>
+                </Section>
+              )}
+
+              {/* Owner Profile */}
+              {property.sell_likelihood_label && !property.suppress_from_leads && (
+                <Section title="Owner Profile" icon={<Users className="size-3.5" />}>
+                  <div className="py-2 flex items-center justify-between border-b border-border/20">
+                    <span className="text-[10px] text-muted-foreground">Sell likelihood</span>
+                    <span className={cn("text-[11px] font-mono font-bold px-2 py-0.5 rounded uppercase",
+                      property.sell_likelihood_label === "very high" ? "text-red-400 bg-red-950/50" :
+                      property.sell_likelihood_label === "high"      ? "text-amber-400 bg-amber-950/50" :
+                      property.sell_likelihood_label === "medium"    ? "text-sky-400 bg-sky-950/50" :
+                      "text-muted-foreground bg-muted/30"
+                    )}>
+                      {property.sell_likelihood_label}
+                    </span>
+                  </div>
+                  {property.owner_type && (
+                    <Row label="Owner type" value={<span className="font-mono text-[11px]">{property.owner_type}</span>} />
+                  )}
+                  {(property.portfolio_size ?? 1) > 1 && (
+                    <Row label="Portfolio" value={
+                      <span className="font-mono text-[11px]">
+                        {property.portfolio_size} buildings · {fmt$(property.total_portfolio_tax_shock)}/yr total shock
+                      </span>
+                    } />
+                  )}
+                  {property.refi_pressure && (
+                    <Row label="Refi pressure" value={
+                      <span className="text-[10px] font-mono text-red-400 bg-red-950/40 px-1.5 py-0.5 rounded">
+                        Pre-2020 debt · faces rate shock
+                      </span>
+                    } />
+                  )}
+                  {(property.sell_signals ?? []).length > 0 && (
+                    <div className="py-2 space-y-1">
+                      {(property.sell_signals ?? []).map((sig, i) => (
+                        <div key={i} className="flex items-start gap-1.5">
+                          <span className="text-amber-400/60 mt-0.5 shrink-0">›</span>
+                          <span className="text-[10px] text-muted-foreground">{sig}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+              )}
+              {property.suppress_from_leads && (
+                <div className="text-[10px] text-muted-foreground/50 bg-muted/20 rounded px-3 py-2">
+                  Owner classified as government or nonprofit — unlikely to sell at market.
+                </div>
+              )}
 
               {/* Score breakdown */}
               <Section title="Distress Score" icon={<BarChart3 className="size-3.5" />}>

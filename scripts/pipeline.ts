@@ -349,6 +349,23 @@ async function upsertScores(scores: ReturnType<typeof scoreAll>): Promise<number
     deregulation_risk: s.deregulationRisk,
     ami_tier: s.amiTier,
     scored_at: s.scoredAt,
+    // Valuation
+    gross_rent_estimate: s.grossRentEstimate,
+    noi_current: s.noiCurrent,
+    noi_post_expiration: s.noiPostExpiration,
+    implied_value_current: s.impliedValueCurrent,
+    implied_value_post_expiration: s.impliedValuePostExpiration,
+    value_delta: s.valueDelta,
+    break_even_occupancy: s.breakEvenOccupancy,
+    // Owner profile
+    owner_type: s.ownerType,
+    portfolio_size: s.portfolioSize,
+    total_portfolio_tax_shock: s.totalPortfolioTaxShock,
+    refi_pressure: s.refiPressure,
+    sell_likelihood_score: s.sellLikelihoodScore,
+    sell_likelihood_label: s.sellLikelihoodLabel,
+    sell_signals: s.sellSignals,
+    suppress_from_leads: s.suppressFromLeads,
   }))
 
   let total = 0

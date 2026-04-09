@@ -56,6 +56,17 @@ export interface PropertyRow {
   // Phase E
   dos_entity_status: string | null
   dos_search_url: string | null
+  // Valuation
+  implied_value_current: number | null
+  implied_value_post_expiration: number | null
+  value_delta: number | null
+  // Owner profile
+  owner_type: string | null
+  portfolio_size: number | null
+  refi_pressure: boolean
+  sell_likelihood_score: number | null
+  sell_likelihood_label: string | null
+  suppress_from_leads: boolean
 }
 
 const col = createColumnHelper<PropertyRow>()
@@ -268,16 +279,48 @@ const COLUMNS = [
     },
   }),
   col.accessor("owner_name", {
-    header: "Owner (ACRIS)",
+    header: "Owner",
     enableSorting: false,
     cell: (info) => {
       const name = info.getValue()
       const row = info.row.original
       const display = name ?? row.hpd_owner_name
       return (
-        <span className="text-[11px] text-muted-foreground truncate max-w-[160px] block">
-          {display ?? "—"}
-        </span>
+        <div className="max-w-[150px]">
+          <span className="text-[11px] text-muted-foreground truncate block">
+            {display ?? "—"}
+          </span>
+          {row.portfolio_size != null && row.portfolio_size > 1 && (
+            <span className="text-[10px] text-sky-400/70 font-mono">{row.portfolio_size} bldgs</span>
+          )}
+        </div>
+      )
+    },
+  }),
+  col.accessor("sell_likelihood_label", {
+    header: "Sell signal",
+    enableSorting: false,
+    cell: (info) => {
+      const row = info.row.original
+      if (row.suppress_from_leads) {
+        return <span className="text-[10px] text-muted-foreground/40">govt/nonprofit</span>
+      }
+      const label = info.getValue()
+      if (!label) return <span className="text-muted-foreground text-[10px]">—</span>
+      const cls =
+        label === "very high" ? "text-red-400 bg-red-950/50" :
+        label === "high"      ? "text-amber-400 bg-amber-950/50" :
+        label === "medium"    ? "text-sky-400 bg-sky-950/40" :
+        "text-muted-foreground bg-muted/30"
+      return (
+        <div>
+          <span className={cn("text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase", cls)}>
+            {label}
+          </span>
+          {row.refi_pressure && (
+            <div className="text-[10px] text-red-400/70 mt-0.5">refi pressure</div>
+          )}
+        </div>
       )
     },
   }),

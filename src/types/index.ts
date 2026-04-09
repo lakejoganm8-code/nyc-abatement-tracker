@@ -132,6 +132,23 @@ export interface PropertyScore {
   deregulationRisk: DeregulationRisk | null
   amiTier: string          // "60%" | "80%" | "market" | "none"
   scoredAt: string
+  // Valuation
+  grossRentEstimate: number | null
+  noiCurrent: number | null
+  noiPostExpiration: number | null
+  impliedValueCurrent: number | null
+  impliedValuePostExpiration: number | null
+  valueDelta: number | null
+  breakEvenOccupancy: number | null
+  // Owner profile
+  ownerType: string | null
+  portfolioSize: number
+  totalPortfolioTaxShock: number
+  refiPressure: boolean
+  sellLikelihoodScore: number
+  sellLikelihoodLabel: string
+  sellSignals: string[]
+  suppressFromLeads: boolean
 }
 
 // ─── Full property record (joined) ───────────────────────────────────────────
