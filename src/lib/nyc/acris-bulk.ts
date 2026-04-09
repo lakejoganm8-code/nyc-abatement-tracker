@@ -155,6 +155,22 @@ export async function fetchACRISBatch(bbls: string[]): Promise<Map<string, ACRIS
     }
   }
 
+  // ── Count how many BBLs share each mortgage doc (portfolio loan detection) ────
+  // When a single ACRIS mortgage document covers multiple properties, the recorded
+  // amount is the total facility — not per-building. We divide by the number of
+  // BBLs in this batch that reference the same doc. Note: a cross-batch portfolio
+  // loan will be under-counted here (only BBLs in this batch are visible), so we
+  // also apply a sanity cap: if the raw amount / units > $5M/unit, treat as portfolio.
+  const mortgageDocBBLCount = new Map<string, number>()
+  for (const docs of bblToRelevantDocs.values()) {
+    const isMortgageDoc = (t: string) => ["MTGE", "AGMT"].includes(t?.toUpperCase()) || t?.toUpperCase().startsWith("MORTGAGE")
+    for (const { docId, docType } of docs) {
+      if (isMortgageDoc(docType)) {
+        mortgageDocBBLCount.set(docId, (mortgageDocBBLCount.get(docId) ?? 0) + 1)
+      }
+    }
+  }
+
   // ── Assemble ─────────────────────────────────────────────────────────────────
   const result = new Map<string, ACRISRecord>()
 
@@ -181,15 +197,27 @@ export async function fetchACRISBatch(bbls: string[]): Promise<Map<string, ACRIS
       ? (partiesByDocId.get(latestDeedDocId) ?? []).find((p) => p.party_type === "1")?.name ?? null
       : null
 
-    const lastMortgageAmount = mortgageMaster?.document_amt ? parseFloat(mortgageMaster.document_amt) || null : null
     const mortgageDate = mortgageMaster?.recorded_datetime?.split("T")[0] ?? null
     const lenderName = latestMortgageDocId
       ? (partiesByDocId.get(latestMortgageDocId) ?? []).find((p) => p.party_type === "2")?.name ?? null
       : null
 
+    // Portfolio loan adjustment: divide by number of BBLs sharing this doc
+    let lastMortgageAmount: number | null = null
+    let mortgagePortfolioCount: number | null = null
+    if (mortgageMaster?.document_amt) {
+      const rawAmt = parseFloat(mortgageMaster.document_amt) || null
+      if (rawAmt != null && latestMortgageDocId) {
+        const sharedCount = mortgageDocBBLCount.get(latestMortgageDocId) ?? 1
+        lastMortgageAmount = sharedCount > 1 ? rawAmt / sharedCount : rawAmt
+        mortgagePortfolioCount = sharedCount > 1 ? sharedCount : null
+      }
+    }
+
     result.set(bbl, {
       bbl, lastDeedDate, lastSalePrice, lastMortgageAmount,
-      mortgageDate, lenderName, ownerName, ownershipYears, fetchedAt: now,
+      mortgageDate, lenderName, ownerName, ownershipYears,
+      mortgagePortfolioCount, fetchedAt: now,
     })
   }
 

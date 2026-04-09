@@ -32,6 +32,7 @@ interface PropertyData {
   last_sale_price: number | null
   last_mortgage_amount: number | null
   mortgage_date: string | null
+  mortgage_portfolio_count: number | null
   ownership_years: number | null
   lender_name: string | null
   estimated_annual_rent_upside: number | null
@@ -304,9 +305,19 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                     )}
                   </div>
                   <div className="space-y-0.5">
-                    <div className="text-[10px] text-muted-foreground">Mortgage</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      Mortgage
+                      {(property.mortgage_portfolio_count ?? 0) > 1 && (
+                        <span className="text-muted-foreground/50 ml-1">(est. per bldg)</span>
+                      )}
+                    </div>
                     <div className="font-mono text-sm font-semibold text-foreground/90">{fmt$(property.last_mortgage_amount)}</div>
                     {property.lender_name && <div className="text-[10px] text-muted-foreground truncate">{property.lender_name}</div>}
+                    {(property.mortgage_portfolio_count ?? 0) > 1 && (
+                      <div className="text-[10px] text-amber-500/70">
+                        {property.mortgage_portfolio_count}-bldg portfolio loan ÷ allocated
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-0.5">
                     <div className="text-[10px] text-muted-foreground">Years held</div>
@@ -626,7 +637,8 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                 <Row label="Last sale"      value={fmt$(property.last_sale_price)}       mono />
                 <Row label="Deed date"      value={fmtDate(property.last_deed_date)}     mono />
                 <Row label="Ownership"      value={property.ownership_years ? `${property.ownership_years} yrs` : "—"} mono />
-                <Row label="Mortgage"       value={fmt$(property.last_mortgage_amount)}  mono />
+                <Row label={(property.mortgage_portfolio_count ?? 0) > 1 ? `Mortgage (est./bldg of ${property.mortgage_portfolio_count})` : "Mortgage"}
+                         value={fmt$(property.last_mortgage_amount)}  mono />
                 <Row label="Mortgage date"  value={fmtDate(property.mortgage_date)}     mono />
                 <Row label="Lender"         value={property.lender_name} />
               </Section>

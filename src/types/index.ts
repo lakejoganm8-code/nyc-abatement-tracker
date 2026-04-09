@@ -73,11 +73,12 @@ export interface ACRISRecord {
   bbl: string
   lastDeedDate: string | null        // ISO date
   lastSalePrice: number | null
-  lastMortgageAmount: number | null
+  lastMortgageAmount: number | null  // per-building allocation (divided by portfolio size when > 1)
   mortgageDate: string | null
   lenderName: string | null
   ownerName: string | null           // deed grantee (current owner)
   ownershipYears: number | null
+  mortgagePortfolioCount: number | null  // # buildings sharing this mortgage doc (>1 = portfolio loan)
   fetchedAt: string
 }
 

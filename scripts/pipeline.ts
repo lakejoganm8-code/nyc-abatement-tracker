@@ -173,6 +173,7 @@ async function upsertACRIS(acrisMap: Map<string, ACRISRecord>): Promise<number> 
     lender_name: a.lenderName,
     owner_name: a.ownerName,
     ownership_years: a.ownershipYears,
+    mortgage_portfolio_count: a.mortgagePortfolioCount ?? null,
     fetched_at: a.fetchedAt,
   }))
 

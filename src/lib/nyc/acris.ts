@@ -60,12 +60,27 @@ export async function getACRISData(bbl: string): Promise<ACRISRecord | null> {
     : null
 
   const latestMortgage = mortgageRows[0] ?? null
-  const lastMortgageAmount = latestMortgage?.document_amt
-    ? parseFloat(latestMortgage.document_amt) || null
-    : null
   const mortgageDate = latestMortgage?.recorded_datetime?.split("T")[0] ?? null
   const mortgageDocId = latestMortgage?.document_id ?? null
   const deedDocId = latestDeed?.document_id ?? null
+
+  // Portfolio loan adjustment: count how many BBLs share this mortgage doc_id.
+  // A single ACRIS document recorded against multiple properties has the total
+  // facility amount, not the per-building allocation — divide to get per-building.
+  let lastMortgageAmount: number | null = null
+  let mortgagePortfolioCount: number | null = null
+  if (latestMortgage?.document_amt) {
+    const rawAmt = parseFloat(latestMortgage.document_amt) || null
+    if (rawAmt != null && mortgageDocId) {
+      const sharedLegals = await client.fetchAll(DATASETS.ACRIS_LEGALS, {
+        $where: `document_id='${mortgageDocId}'`,
+        $select: "document_id",
+      }) as { document_id: string }[]
+      const sharedCount = Math.max(1, sharedLegals.length)
+      lastMortgageAmount = sharedCount > 1 ? rawAmt / sharedCount : rawAmt
+      mortgagePortfolioCount = sharedCount > 1 ? sharedCount : null
+    }
+  }
 
   // ── Step 3: Get lender + owner names from Parties ────────────────────────
   let lenderName: string | null = null
@@ -96,6 +111,7 @@ export async function getACRISData(bbl: string): Promise<ACRISRecord | null> {
     lenderName,
     ownerName,
     ownershipYears,
+    mortgagePortfolioCount,
     fetchedAt: now,
   }
 }
