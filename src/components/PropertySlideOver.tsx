@@ -61,6 +61,11 @@ interface PropertyData {
   dos_agent_address: string | null
   dos_search_url: string | null
   dos_date_of_formation: string | null
+  // Regulatory agreement
+  has_affordable_commitment: boolean
+  reg_agreement_doc_type: string | null
+  reg_agreement_date: string | null
+  reg_agreement_url: string | null
   // Valuation
   gross_rent_estimate: number | null
   noi_current: number | null
@@ -458,6 +463,15 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                 <Row label="Phase-out starts" value={property.phase_out_start_year} mono />
                 <Row label="Annual exempt"    value={fmt$(property.annual_exempt_amount)} mono />
                 <Row label="Assessed value"   value={fmt$(property.assessed_value)}    mono />
+                {property.has_affordable_commitment && (
+                  <Row label="HPD reg. agreement" value={
+                    <a href={property.reg_agreement_url ?? "#"} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-sky-400 hover:underline text-[11px]">
+                      {property.reg_agreement_doc_type ?? "Filed"} {property.reg_agreement_date ? `(${new Date(property.reg_agreement_date).getFullYear()})` : ""}
+                      <ExternalLink className="size-2.5" />
+                    </a>
+                  } />
+                )}
               </Section>
 
               {/* Rent & Dereg */}
@@ -479,6 +493,11 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                   property.is_rent_stabilized === true ? "Yes" :
                   property.is_rent_stabilized === false ? "At risk" : "—"
                 } />
+                {property.has_affordable_commitment && (
+                  <Row label="Affordable commitment" value={
+                    <span className="text-emerald-400 text-[10px] font-mono">HPD reg. agmt on file — limits deregulation</span>
+                  } />
+                )}
                 <Row label="Year built" value={property.year_built} mono />
               </Section>
 

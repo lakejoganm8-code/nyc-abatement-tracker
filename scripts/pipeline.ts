@@ -37,6 +37,7 @@ import { fetchDOBViolationCounts } from "@/lib/nyc/dob-violations"
 import { fetchHousingCourtCounts } from "@/lib/nyc/housing-court"
 import { fetchDOFMarketValues } from "@/lib/nyc/dof-assessment"
 import { fetchDOSEntityInfo } from "@/lib/nyc/ny-dos"
+import { fetchRegAgreements } from "@/lib/nyc/hpd-reg-agreements"
 import { scoreAll, type ScoringExtra } from "@/lib/analysis/scoring"
 import { EXEMPTION_CODES_421A, EXEMPTION_CODES_J51 } from "@/lib/analysis/config"
 import type { ExemptionRecord, HPDData, PLUTOData, ACRISRecord, PipelineRun } from "@/types"
@@ -533,6 +534,30 @@ async function main() {
   } catch (err) {
     console.warn(`[pipeline] DOF market values failed (non-fatal): ${err}`)
   }
+
+  // Step 6.4: Regulatory agreements (421-a affordable buildings)
+  console.log("[pipeline] Fetching HPD regulatory agreements from ACRIS...")
+  const tReg = Date.now()
+  const regMap = await fetchRegAgreements(priorityBBLs)
+  if (regMap.size > 0) {
+    const regRows = Array.from(regMap.values()).map((r) => ({
+      bbl: r.bbl,
+      reg_agreement_doc_id: r.docId,
+      reg_agreement_doc_type: r.docType,
+      reg_agreement_date: r.documentDate,
+      reg_agreement_url: r.acrisUrl,
+      has_affordable_commitment: true,
+      fetched_at: new Date().toISOString(),
+    }))
+    for (let i = 0; i < regRows.length; i += UPSERT_BATCH) {
+      const batch = regRows.slice(i, i + UPSERT_BATCH)
+      await withRetry(async () => {
+        const { error } = await supabase.from("acris_records").upsert(batch, { onConflict: "bbl" })
+        if (error) throw new Error(`[reg_agreements upsert] ${error.message}`)
+      })
+    }
+  }
+  console.log(`[pipeline] Regulatory agreements: ${regMap.size} found (${Date.now() - tReg}ms)`)
 
   // Step 6.5: Phase E — NY DOS LLC entity lookup (non-fatal)
   try {
