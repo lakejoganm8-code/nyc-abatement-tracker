@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { X, ExternalLink, TrendingDown, TrendingUp, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone, Zap, Users, Flame, Target } from "lucide-react"
 import { isAgencyLender } from "@/lib/analysis/owner-profile"
+import { getMortgageVintage, PRESSURE_STYLES } from "@/lib/analysis/mortgage-vintage"
 import { cn } from "@/lib/utils"
 
 interface PropertyData {
@@ -632,16 +633,68 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
               </Section>
 
               {/* Financial */}
-              <Section title="Financial Signal" icon={<DollarSign className="size-3.5" />}>
-                <Row label="Owner"          value={property.owner_name} />
-                <Row label="Last sale"      value={fmt$(property.last_sale_price)}       mono />
-                <Row label="Deed date"      value={fmtDate(property.last_deed_date)}     mono />
-                <Row label="Ownership"      value={property.ownership_years ? `${property.ownership_years} yrs` : "—"} mono />
-                <Row label={(property.mortgage_portfolio_count ?? 0) > 1 ? `Mortgage (est./bldg of ${property.mortgage_portfolio_count})` : "Mortgage"}
-                         value={fmt$(property.last_mortgage_amount)}  mono />
-                <Row label="Mortgage date"  value={fmtDate(property.mortgage_date)}     mono />
-                <Row label="Lender"         value={property.lender_name} />
-              </Section>
+              {(() => {
+                const vintage = getMortgageVintage(property.mortgage_date)
+                return (
+                  <Section title="Financial Signal" icon={<DollarSign className="size-3.5" />}>
+                    <Row label="Owner"     value={property.owner_name} />
+                    <Row label="Last sale" value={fmt$(property.last_sale_price)} mono />
+                    <Row label="Deed date" value={fmtDate(property.last_deed_date)} mono />
+                    <Row label="Held"      value={property.ownership_years ? `${property.ownership_years} yrs` : "—"} mono />
+                    <Row
+                      label={(property.mortgage_portfolio_count ?? 0) > 1
+                        ? `Mortgage (est./bldg of ${property.mortgage_portfolio_count})`
+                        : "Mortgage"}
+                      value={fmt$(property.last_mortgage_amount)} mono
+                    />
+                    <Row label="Mortgage date" value={fmtDate(property.mortgage_date)} mono />
+                    <Row label="Lender"        value={property.lender_name} />
+
+                    {/* Vintage rate estimate */}
+                    {vintage && (
+                      <div className="py-2.5 border-t border-border/20 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
+                            Vintage rate estimate
+                          </span>
+                          <span className={cn(
+                            "text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase",
+                            PRESSURE_STYLES[vintage.pressure]
+                          )}>
+                            {vintage.pressure} refi pressure
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-[10px] text-muted-foreground">{vintage.label} originations</span>
+                          <span className="font-mono text-sm font-bold">
+                            {vintage.rateMin}–{vintage.rateMax}%
+                            <span className="text-[10px] text-muted-foreground font-normal ml-1">est. range</span>
+                          </span>
+                        </div>
+                        {vintage.likelyResetYear && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">Likely reset / maturity</span>
+                            <span className={cn(
+                              "font-mono text-xs font-semibold",
+                              vintage.likelyResetYear <= CURRENT_YEAR + 1 ? "text-red-400" :
+                              vintage.likelyResetYear <= CURRENT_YEAR + 3 ? "text-amber-400" :
+                              "text-muted-foreground"
+                            )}>
+                              ~{vintage.likelyResetYear}
+                            </span>
+                          </div>
+                        )}
+                        <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+                          {vintage.note}
+                        </p>
+                        <p className="text-[9px] text-muted-foreground/40 leading-relaxed">
+                          Estimate based on 10-yr Treasury + multifamily spread for vintage year. Actual rate, term, and structure unknown.
+                        </p>
+                      </div>
+                    )}
+                  </Section>
+                )
+              })()}
 
 
               {/* Building */}
