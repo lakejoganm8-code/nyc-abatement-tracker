@@ -20,8 +20,8 @@ import type { ACRISRecord } from "@/types"
 const LEGALS_CHUNK = 40    // BBLs per Legals OR-clause request (~2KB URL)
 const MASTER_CHUNK = 150   // doc_ids per Master IN clause
 const PARTIES_CHUNK = 150  // doc_ids per Parties IN clause
-const CONCURRENCY = 5      // parallel requests per wave
-export const ACRIS_SUPER_WAVE = 200 // BBLs per processable batch (caller iterates)
+const CONCURRENCY = 8      // parallel requests per wave
+export const ACRIS_SUPER_WAVE = 300 // BBLs per processable batch (caller iterates)
 
 interface RawLegal {
   document_id: string
