@@ -103,7 +103,7 @@ export function DashboardView({ data, searchParams }: DashboardViewProps) {
         <StatCard
           label="Properties"
           value={data.length.toLocaleString()}
-          sub={data.length === 500 ? "top 500 shown" : "in window"}
+          sub={data.length === 2000 ? "top 2,000 shown" : "matching filters"}
           icon={<BarChart3 className="size-3.5" />}
         />
         <StatCard
