@@ -40,6 +40,23 @@ const INSTITUTIONAL_LENDERS = [
   "INVESTORS BANK", "DIME SAVINGS",
 ]
 
+// Agency debt lenders: Fannie/Freddie/HUD-backed loans have stabilization covenants
+// that restrict deregulation. Buyers should know this before underwriting rent upside.
+export const AGENCY_LENDERS = [
+  "FANNIE MAE", "FEDERAL NATIONAL MORTGAGE", "FNMA",
+  "FREDDIE MAC", "FEDERAL HOME LOAN MORTGAGE", "FHLMC",
+  "FEDERAL HOUSING ADMINISTRATION", "FHA",
+  "WELLS FARGO MULTIFAMILY", "BERKADIA", "WALKER & DUNLOP",
+  "ARBOR REALTY", "ARBOR AGENCY", "MERIDIAN CAPITAL",
+  "GREYSTONE", "READY CAPITAL", "LUMENT",
+]
+
+export function isAgencyLender(lenderName: string | null): boolean {
+  if (!lenderName) return false
+  const upper = lenderName.toUpperCase()
+  return AGENCY_LENDERS.some((a) => upper.includes(a))
+}
+
 export type OwnerType =
   | "government"      // city/state/federal agency
   | "nonprofit"       // HDFCs, CDCs, community land trusts

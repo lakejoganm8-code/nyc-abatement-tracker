@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, ExternalLink, TrendingDown, TrendingUp, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone, Zap, Users } from "lucide-react"
+import { X, ExternalLink, TrendingDown, TrendingUp, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone, Zap, Users, Flame, Target } from "lucide-react"
+import { isAgencyLender } from "@/lib/analysis/owner-profile"
 import { cn } from "@/lib/utils"
 
 interface PropertyData {
@@ -30,6 +31,7 @@ interface PropertyData {
   last_deed_date: string | null
   last_sale_price: number | null
   last_mortgage_amount: number | null
+  mortgage_date: string | null
   ownership_years: number | null
   lender_name: string | null
   estimated_annual_rent_upside: number | null
@@ -370,53 +372,170 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
               )}
 
               {/* Owner Profile */}
-              {property.sell_likelihood_label && !property.suppress_from_leads && (
+              {property.sell_likelihood_label ? (
                 <Section title="Owner Profile" icon={<Users className="size-3.5" />}>
-                  <div className="py-2 flex items-center justify-between border-b border-border/20">
-                    <span className="text-[10px] text-muted-foreground">Sell likelihood</span>
-                    <span className={cn("text-[11px] font-mono font-bold px-2 py-0.5 rounded uppercase",
-                      property.sell_likelihood_label === "very high" ? "text-red-400 bg-red-950/50" :
-                      property.sell_likelihood_label === "high"      ? "text-amber-400 bg-amber-950/50" :
-                      property.sell_likelihood_label === "medium"    ? "text-sky-400 bg-sky-950/50" :
-                      "text-muted-foreground bg-muted/30"
-                    )}>
-                      {property.sell_likelihood_label}
-                    </span>
-                  </div>
+                  {/* Sell likelihood header with score gauge */}
+                  {!property.suppress_from_leads ? (
+                    <div className="py-3 flex items-center justify-between border-b border-border/20">
+                      <div className="flex items-center gap-2">
+                        <Flame className={cn("size-3.5",
+                          property.sell_likelihood_label === "very high" ? "text-red-400" :
+                          property.sell_likelihood_label === "high"      ? "text-amber-400" :
+                          property.sell_likelihood_label === "medium"    ? "text-sky-400" :
+                          "text-muted-foreground"
+                        )} />
+                        <span className="text-[10px] text-muted-foreground">Sell likelihood</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {property.sell_likelihood_score != null && (
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            {property.sell_likelihood_score}/100
+                          </span>
+                        )}
+                        <span className={cn("text-[11px] font-mono font-bold px-2 py-0.5 rounded uppercase",
+                          property.sell_likelihood_label === "very high" ? "text-red-400 bg-red-950/50" :
+                          property.sell_likelihood_label === "high"      ? "text-amber-400 bg-amber-950/50" :
+                          property.sell_likelihood_label === "medium"    ? "text-sky-400 bg-sky-950/50" :
+                          "text-muted-foreground bg-muted/30"
+                        )}>
+                          {property.sell_likelihood_label}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-2.5 flex items-center gap-2 border-b border-border/20">
+                      <Shield className="size-3 text-muted-foreground/50" />
+                      <span className="text-[10px] text-muted-foreground/60">Government or nonprofit — unlikely to sell at market</span>
+                    </div>
+                  )}
+
+                  {/* Owner classification */}
                   {property.owner_type && (
-                    <Row label="Owner type" value={<span className="font-mono text-[11px]">{property.owner_type}</span>} />
+                    <Row label="Owner type" value={
+                      <span className={cn("text-[11px] font-mono capitalize px-1.5 py-0.5 rounded",
+                        property.owner_type === "institutional" ? "text-sky-400 bg-sky-950/30" :
+                        property.owner_type === "portfolio"     ? "text-violet-400 bg-violet-950/30" :
+                        property.owner_type === "individual"    ? "text-emerald-400 bg-emerald-950/30" :
+                        "text-muted-foreground bg-muted/30"
+                      )}>
+                        {property.owner_type}
+                      </span>
+                    } />
                   )}
+
+                  {/* Portfolio exposure */}
                   {(property.portfolio_size ?? 1) > 1 && (
-                    <Row label="Portfolio" value={
-                      <span className="font-mono text-[11px]">
-                        {property.portfolio_size} buildings · {fmt$(property.total_portfolio_tax_shock)}/yr total shock
-                      </span>
-                    } />
+                    <div className="py-2 border-b border-border/20">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[11px] text-muted-foreground">Portfolio exposure</span>
+                        <span className="font-mono text-[11px]">{property.portfolio_size} buildings in pipeline</span>
+                      </div>
+                      {property.total_portfolio_tax_shock != null && property.total_portfolio_tax_shock > 0 && (
+                        <div className="flex justify-between items-start mt-0.5">
+                          <span className="text-[10px] text-muted-foreground/70">Total tax shock (portfolio)</span>
+                          <span className="font-mono text-[10px] text-amber-400">{fmt$(property.total_portfolio_tax_shock)}/yr</span>
+                        </div>
+                      )}
+                    </div>
                   )}
+
+                  {/* Refi pressure flag */}
                   {property.refi_pressure && (
-                    <Row label="Refi pressure" value={
-                      <span className="text-[10px] font-mono text-red-400 bg-red-950/40 px-1.5 py-0.5 rounded">
-                        Pre-2020 debt · faces rate shock
-                      </span>
-                    } />
+                    <div className="py-2 border-b border-border/20">
+                      <div className="flex items-center gap-1.5">
+                        <AlertTriangle className="size-3 text-red-400 shrink-0" />
+                        <span className="text-[10px] text-red-300 font-medium">Refinancing pressure</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+                        Pre-2020 mortgage + abatement expiring within 2 years. Owner faces rate reset to 7%+ while NOI is compressing.
+                      </p>
+                    </div>
                   )}
-                  {(property.sell_signals ?? []).length > 0 && (
-                    <div className="py-2 space-y-1">
+
+                  {/* Agency debt warning */}
+                  {isAgencyLender(property.lender_name) && (
+                    <div className="py-2 border-b border-border/20">
+                      <div className="flex items-center gap-1.5">
+                        <Shield className="size-3 text-sky-400 shrink-0" />
+                        <span className="text-[10px] text-sky-300 font-medium">Agency debt — stabilization covenant</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+                        Lender ({property.lender_name}) is an agency lender. Fannie/Freddie multifamily loans typically include rent stabilization covenants — deregulation upside may be restricted until loan payoff.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Sell signals list */}
+                  {(property.sell_signals ?? []).filter(s => s).length > 0 && (
+                    <div className="py-2 space-y-1.5 border-b border-border/20">
+                      <div className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mb-1">Why this score</div>
                       {(property.sell_signals ?? []).map((sig, i) => (
                         <div key={i} className="flex items-start gap-1.5">
-                          <span className="text-amber-400/60 mt-0.5 shrink-0">›</span>
-                          <span className="text-[10px] text-muted-foreground">{sig}</span>
+                          <Target className="size-2.5 text-amber-400/60 mt-0.5 shrink-0" />
+                          <span className="text-[10px] text-muted-foreground leading-relaxed">{sig}</span>
                         </div>
                       ))}
                     </div>
                   )}
+
+                  {/* Research links */}
+                  <div className="py-2 flex flex-wrap gap-2">
+                    {property.owner_name && (
+                      <a
+                        href={`https://acris.nyc.gov/DS/DocumentSearch/PartyName?name=${encodeURIComponent(property.owner_name)}&partyType=GRANTOR&SearchType=OWNER&county=ALL`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[10px] text-sky-400/80 hover:text-sky-300 transition-colors"
+                      >
+                        <ExternalLink className="size-2.5" /> ACRIS owner history
+                      </a>
+                    )}
+                    {property.dos_search_url ? (
+                      <a
+                        href={property.dos_search_url}
+                        target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[10px] text-sky-400/80 hover:text-sky-300 transition-colors"
+                      >
+                        <ExternalLink className="size-2.5" /> NY DOS entity
+                      </a>
+                    ) : property.owner_name ? (
+                      <a
+                        href={`https://apps.dos.ny.gov/publicInquiry/EntitySearch?entityName=${encodeURIComponent(property.owner_name)}&entityStatus=Active`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[10px] text-sky-400/80 hover:text-sky-300 transition-colors"
+                      >
+                        <ExternalLink className="size-2.5" /> NY DOS search
+                      </a>
+                    ) : null}
+                  </div>
+
+                  {/* DOS entity details */}
+                  {(property.dos_entity_status || property.dos_agent_name) && (
+                    <div className="py-2 border-t border-border/20 space-y-0">
+                      {property.dos_entity_status && (
+                        <Row label="DOS status" value={
+                          <span className={cn("text-[11px] font-mono px-1.5 py-0.5 rounded uppercase",
+                            property.dos_entity_status.toUpperCase() === "ACTIVE"
+                              ? "text-emerald-400 bg-emerald-950/30"
+                              : "text-red-400 bg-red-950/30"
+                          )}>
+                            {property.dos_entity_status}
+                          </span>
+                        } />
+                      )}
+                      {property.dos_agent_name && (
+                        <Row label="Registered agent" value={
+                          <span className="text-[10px] text-right leading-tight">{property.dos_agent_name}</span>
+                        } />
+                      )}
+                      {property.dos_agent_address && (
+                        <Row label="Agent address" value={
+                          <span className="text-[10px] text-right leading-tight">{property.dos_agent_address}</span>
+                        } />
+                      )}
+                    </div>
+                  )}
                 </Section>
-              )}
-              {property.suppress_from_leads && (
-                <div className="text-[10px] text-muted-foreground/50 bg-muted/20 rounded px-3 py-2">
-                  Owner classified as government or nonprofit — unlikely to sell at market.
-                </div>
-              )}
+              ) : null}
 
               {/* Score breakdown */}
               <Section title="Distress Score" icon={<BarChart3 className="size-3.5" />}>
@@ -508,47 +627,10 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                 <Row label="Deed date"      value={fmtDate(property.last_deed_date)}     mono />
                 <Row label="Ownership"      value={property.ownership_years ? `${property.ownership_years} yrs` : "—"} mono />
                 <Row label="Mortgage"       value={fmt$(property.last_mortgage_amount)}  mono />
-                <Row label="Mortgage date"  value={fmtDate(property.lender_name ? undefined : undefined)} mono />
+                <Row label="Mortgage date"  value={fmtDate(property.mortgage_date)}     mono />
                 <Row label="Lender"         value={property.lender_name} />
               </Section>
 
-              {/* Entity Research — Phase E */}
-              {(property.dos_search_url || property.dos_entity_status) && (
-                <Section title="Entity Research" icon={<ExternalLink className="size-3.5" />}>
-                  {property.dos_entity_status && (
-                    <Row label="DOS status" value={
-                      <span className={cn("text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase",
-                        property.dos_entity_status.toUpperCase() === "ACTIVE"
-                          ? "text-emerald-400 bg-emerald-950/50"
-                          : "text-amber-400 bg-amber-950/50"
-                      )}>
-                        {property.dos_entity_status}
-                      </span>
-                    } />
-                  )}
-                  {property.dos_date_of_formation && (
-                    <Row label="Formed" value={fmtDate(property.dos_date_of_formation)} mono />
-                  )}
-                  {property.dos_agent_name && (
-                    <Row label="Registered agent" value={property.dos_agent_name} />
-                  )}
-                  {property.dos_agent_address && (
-                    <Row label="Agent address" value={property.dos_agent_address} />
-                  )}
-                  {property.dos_search_url && (
-                    <div className="py-1.5">
-                      <a
-                        href={property.dos_search_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-[11px] text-sky-400 hover:underline"
-                      >
-                        Search NY DOS <ExternalLink className="size-2.5" />
-                      </a>
-                    </div>
-                  )}
-                </Section>
-              )}
 
               {/* Building */}
               <Section title="Building Profile" icon={<Building2 className="size-3.5" />}>

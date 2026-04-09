@@ -10,7 +10,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { Search, X } from "lucide-react"
+import { Search, X, Flame } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -42,6 +43,7 @@ export function FilterBar() {
   const expiresTo = searchParams.get("expiresTo") ?? String(CURRENT_YEAR + 2)
   const minScore = searchParams.get("minScore") ?? "0"
   const search = searchParams.get("search") ?? ""
+  const motivatedOnly = searchParams.get("motivatedOnly") === "1"
 
   const hasFilters = searchParams.toString().length > 0
 
@@ -142,6 +144,20 @@ export function FilterBar() {
           if (e.key === "Enter") updateParam("owner", (e.target as HTMLInputElement).value || null)
         }}
       />
+
+      {/* Motivated sellers toggle */}
+      <button
+        onClick={() => updateParam("motivatedOnly", motivatedOnly ? null : "1")}
+        className={cn(
+          "flex items-center gap-1.5 h-8 px-3 rounded text-[11px] font-medium border transition-all",
+          motivatedOnly
+            ? "bg-amber-950/60 border-amber-700/60 text-amber-300"
+            : "bg-muted/50 border-border/60 text-muted-foreground hover:text-foreground hover:border-border"
+        )}
+      >
+        <Flame className="size-3" />
+        Motivated sellers
+      </button>
 
       {/* Clear all */}
       {hasFilters && (

@@ -20,6 +20,7 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
   const owner = searchParams.owner ?? null
   const buildingClass = searchParams.buildingClass ?? null
   const search = searchParams.search ?? null
+  const motivatedOnly = searchParams.motivatedOnly === "1"
 
   let query = supabase
     .from("property_pipeline")
@@ -45,6 +46,11 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
   if (search) {
     // Search by address or BBL
     query = query.or(`address.ilike.%${search}%,bbl.eq.${search}`)
+  }
+  if (motivatedOnly) {
+    query = query
+      .in("sell_likelihood_label", ["high", "very high"])
+      .eq("suppress_from_leads", false)
   }
 
   const { data, error } = await query

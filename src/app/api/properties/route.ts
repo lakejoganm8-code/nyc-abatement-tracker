@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     buildingClass: searchParams.get("buildingClass") ?? undefined,
     minUnits: parseInt(searchParams.get("minUnits") ?? "0") || undefined,
     owner: searchParams.get("owner") ?? undefined,
+    motivatedOnly: searchParams.get("motivatedOnly") === "1",
     limit: parseInt(searchParams.get("limit") ?? "100"),
     offset: parseInt(searchParams.get("offset") ?? "0"),
   }
@@ -49,6 +50,12 @@ export async function GET(request: NextRequest) {
 
   if (filters.expiresTo !== undefined) {
     query = query.lte("expiration_year", filters.expiresTo)
+  }
+
+  if (filters.motivatedOnly) {
+    query = query
+      .in("sell_likelihood_label", ["high", "very high"])
+      .eq("suppress_from_leads", false)
   }
 
   const { data, error, count } = await query

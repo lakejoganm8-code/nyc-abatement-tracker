@@ -210,6 +210,7 @@ export interface PropertyFilters {
   minUnits?: number
   owner?: string        // owner name search (ilike)
   condoOnly?: boolean   // show only condo buildings (has condo_unit_count > 0)
+  motivatedOnly?: boolean // show only high/very-high sell likelihood, not govt/nonprofit
   limit?: number
   offset?: number
 }
