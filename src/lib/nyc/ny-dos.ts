@@ -1,10 +1,11 @@
 // NY DOS Corporation Search — Active Corporations dataset (open.ny.gov)
-// Dataset: w7hz-rri8 (NY Open Data, not NYC)
-// Contains entity name, DOS ID, status, registered agent, date of formation.
+// Dataset: n9v6-gdp6 "Active Corporations: Beginning 1800" (NY Open Data, not NYC)
+// Contains entity name, DOS ID, registered agent address, date of formation.
+// All records in this dataset are active (no entity_status field needed).
 // We match against owner_name from ACRIS to enrich LLC-owned properties.
 
 const NY_OPEN_DATA_BASE = "https://data.ny.gov/resource"
-const DATASET = "hn44-r3ic"  // Active Corporations and Business Entities
+const DATASET = "n9v6-gdp6"  // Active Corporations: Beginning 1800
 
 export interface DOSEntityInfo {
   bbl: string
@@ -62,15 +63,15 @@ export async function fetchDOSEntityInfo(
   for (let i = 0; i < uniqueNames.length; i += CHUNK) {
     const chunk = uniqueNames.slice(i, i + CHUNK)
 
-    // Build OR clause for entity_name
+    // Build OR clause for current_entity_name
     const orClause = chunk
-      .map((n) => `entity_name='${n.replace(/'/g, "''")}'`)
+      .map((n) => `current_entity_name='${n.replace(/'/g, "''")}'`)
       .join(" OR ")
 
     try {
       const url = new URL(`${NY_OPEN_DATA_BASE}/${DATASET}.json`)
       url.searchParams.set("$where", orClause)
-      url.searchParams.set("$select", "entity_name,dos_id,entity_status,initial_dos_filing_date,agent_name,agent_address")
+      url.searchParams.set("$select", "current_entity_name,dos_id,initial_dos_filing_date,dos_process_name,dos_process_address_1,dos_process_city,dos_process_state,dos_process_zip")
       url.searchParams.set("$limit", "200")
 
       const appToken = process.env.NYC_OPEN_DATA_APP_TOKEN ?? ""
@@ -82,29 +83,30 @@ export async function fetchDOSEntityInfo(
 
       const rows = await res.json() as Record<string, string>[]
 
-      // Match rows back to BBLs by entity_name
+      // Match rows back to BBLs by current_entity_name
       const byName = new Map<string, Record<string, string>>()
       for (const row of rows) {
-        const name = (row.entity_name ?? "").trim().toUpperCase()
-        // Keep active records; prefer active over dissolved
-        const existing = byName.get(name)
-        if (!existing || (row.entity_status ?? "").toUpperCase() === "ACTIVE") {
-          byName.set(name, row)
-        }
+        const name = (row.current_entity_name ?? "").trim().toUpperCase()
+        if (!byName.has(name)) byName.set(name, row)
       }
 
       for (const name of chunk) {
         const row = byName.get(name)
         const bbls = nameToBBLs.get(name) ?? []
+        // Build agent address from components
+        const agentAddr = row
+          ? [row.dos_process_address_1, row.dos_process_city, row.dos_process_state, row.dos_process_zip]
+              .filter(Boolean).join(", ")
+          : null
         for (const bbl of bbls) {
           result.set(bbl, {
             bbl,
-            entityName: row?.entity_name ?? null,
+            entityName: row?.current_entity_name ?? null,
             dosId: row?.dos_id ?? null,
-            entityStatus: row?.entity_status ?? null,
+            entityStatus: row ? "ACTIVE" : null,
             dateOfFormation: row?.initial_dos_filing_date ?? null,
-            registeredAgentName: row?.agent_name ?? null,
-            registeredAgentAddress: row?.agent_address ?? null,
+            registeredAgentName: row?.dos_process_name ?? null,
+            registeredAgentAddress: agentAddr || null,
             dosSearchUrl: buildDOSSearchUrl(name),
           })
         }

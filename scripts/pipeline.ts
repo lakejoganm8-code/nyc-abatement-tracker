@@ -432,26 +432,28 @@ async function main() {
   const bbls = targetRecords.map((r) => r.bbl)
   const currentYear = new Date().getFullYear()
 
-  // Priority BBLs: expiring soonest — used for ACRIS + evictions (capped for time budget)
+  // Priority BBLs: expiring soonest — used for evictions, DOB, tax liens, housing court, DOS
   const PRIORITY_MAX = 5000
   const priorityBBLs = targetRecords
     .filter((r) => r.expirationYear != null && r.expirationYear <= currentYear + 2)
     .map((r) => r.bbl)
     .slice(0, PRIORITY_MAX)
 
-  // Step 3: ACRIS bulk — run FIRST (before HPD) so it writes early
-  // Only fetches priority BBLs (~5k); incremental per-batch upserts
-  console.log(`[pipeline] Fetching ACRIS for ${priorityBBLs.length} priority BBLs (expiring ≤ ${currentYear + 2})...`)
+  // Step 3: ACRIS bulk — fetch ALL target BBLs for full DB coverage
+  // Incremental per-batch upserts so progress is saved even if pipeline is interrupted
+  console.log(`[pipeline] Fetching ACRIS for all ${bbls.length} target BBLs...`)
   const t35 = Date.now()
   const acrisMap = new Map<string, import("@/types").ACRISRecord>()
   let acrisTotal = 0
-  for (let i = 0; i < priorityBBLs.length; i += ACRIS_SUPER_WAVE) {
-    const batch = priorityBBLs.slice(i, i + ACRIS_SUPER_WAVE)
+  for (let i = 0; i < bbls.length; i += ACRIS_SUPER_WAVE) {
+    const batch = bbls.slice(i, i + ACRIS_SUPER_WAVE)
     const batchMap = await fetchACRISBatch(batch)
     const batchCount = await upsertACRIS(batchMap)
     acrisTotal += batchCount
     for (const [bbl, rec] of batchMap) acrisMap.set(bbl, rec)
-    console.log(`[pipeline] ACRIS batch ${Math.floor(i / ACRIS_SUPER_WAVE) + 1}/${Math.ceil(priorityBBLs.length / ACRIS_SUPER_WAVE)}: ${batchMap.size} matched, ${batchCount} upserted`)
+    if ((i / ACRIS_SUPER_WAVE) % 10 === 0) {
+      console.log(`[pipeline] ACRIS batch ${Math.floor(i / ACRIS_SUPER_WAVE) + 1}/${Math.ceil(bbls.length / ACRIS_SUPER_WAVE)}: ${acrisMap.size} matched so far`)
+    }
   }
   await logRun({ dataset: "acris", rowsUpserted: acrisTotal, durationMs: Date.now() - t35, status: "success" })
   console.log(`[pipeline] ACRIS complete: ${acrisTotal} records upserted (${Date.now() - t35}ms)`)

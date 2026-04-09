@@ -29,10 +29,13 @@ async function runChunked<T>(
 }
 
 function buildDOBOrClause(bbls: string[]): string {
+  // DOB dataset stores block/lot as zero-padded strings (e.g. "00847", "00038")
   return bbls
     .map((b) => {
       const { boro, block, lot } = parseBBLParts(b)
-      return `(boro='${boro}' AND block='${block}' AND lot='${lot}')`
+      const blockPadded = block.padStart(5, "0")
+      const lotPadded = lot.padStart(4, "0")
+      return `(boro='${boro}' AND block='${blockPadded}' AND lot='${lotPadded}')`
     })
     .join(" OR ")
 }
