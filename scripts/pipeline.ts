@@ -444,31 +444,33 @@ async function main() {
     .map((r) => r.bbl)
     .slice(0, PRIORITY_MAX)
 
-  // Step 3: ACRIS bulk — fetch ALL target BBLs for full DB coverage
-  // Incremental per-batch upserts so progress is saved even if pipeline is interrupted
-  console.log(`[pipeline] Fetching ACRIS for all ${bbls.length} target BBLs...`)
+  // Step 3: ACRIS bulk + HPD + PLUTO in parallel
+  // ACRIS writes to acris_records; HPD/PLUTO write to hpd_data/pluto_data — no conflict
+  console.log(`[pipeline] Fetching ACRIS, HPD, and PLUTO in parallel for ${bbls.length} BBLs...`)
   const t35 = Date.now()
-  const acrisMap = new Map<string, import("@/types").ACRISRecord>()
-  let acrisTotal = 0
-  for (let i = 0; i < bbls.length; i += ACRIS_SUPER_WAVE) {
-    const batch = bbls.slice(i, i + ACRIS_SUPER_WAVE)
-    const batchMap = await fetchACRISBatch(batch)
-    const batchCount = await upsertACRIS(batchMap)
-    acrisTotal += batchCount
-    for (const [bbl, rec] of batchMap) acrisMap.set(bbl, rec)
-    if ((i / ACRIS_SUPER_WAVE) % 10 === 0) {
-      console.log(`[pipeline] ACRIS batch ${Math.floor(i / ACRIS_SUPER_WAVE) + 1}/${Math.ceil(bbls.length / ACRIS_SUPER_WAVE)}: ${acrisMap.size} matched so far`)
-    }
-  }
-  await logRun({ dataset: "acris", rowsUpserted: acrisTotal, durationMs: Date.now() - t35, status: "success" })
-  console.log(`[pipeline] ACRIS complete: ${acrisTotal} records upserted (${Date.now() - t35}ms)`)
+  const t3 = t35
 
-  // Step 3.5: HPD + PLUTO in parallel (all target BBLs)
-  console.log(`[pipeline] Fetching HPD + PLUTO for ${bbls.length} BBLs...`)
-  const t3 = Date.now()
-  const [hpdMap, plutoMap] = await Promise.all([
-    getHPDData(bbls),
-    fetchPLUTOData(bbls),
+  async function fetchACRISAll(): Promise<Map<string, import("@/types").ACRISRecord>> {
+    const acrisMap = new Map<string, import("@/types").ACRISRecord>()
+    let acrisTotal = 0
+    for (let i = 0; i < bbls.length; i += ACRIS_SUPER_WAVE) {
+      const batch = bbls.slice(i, i + ACRIS_SUPER_WAVE)
+      const batchMap = await fetchACRISBatch(batch)
+      const batchCount = await upsertACRIS(batchMap)
+      acrisTotal += batchCount
+      for (const [bbl, rec] of batchMap) acrisMap.set(bbl, rec)
+      if ((i / ACRIS_SUPER_WAVE) % 10 === 0) {
+        console.log(`[pipeline] ACRIS batch ${Math.floor(i / ACRIS_SUPER_WAVE) + 1}/${Math.ceil(bbls.length / ACRIS_SUPER_WAVE)}: ${acrisMap.size} matched so far`)
+      }
+    }
+    await logRun({ dataset: "acris", rowsUpserted: acrisTotal, durationMs: Date.now() - t35, status: "success" })
+    console.log(`[pipeline] ACRIS complete: ${acrisTotal} records upserted (${Date.now() - t35}ms)`)
+    return acrisMap
+  }
+
+  const [acrisMap, [hpdMap, plutoMap]] = await Promise.all([
+    fetchACRISAll(),
+    Promise.all([getHPDData(bbls), fetchPLUTOData(bbls)]),
   ])
   console.log(`[pipeline] HPD: ${hpdMap.size} records, PLUTO: ${plutoMap.size} records`)
 

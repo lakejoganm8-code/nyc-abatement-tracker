@@ -121,7 +121,7 @@ export class SocrataClient {
    */
   private async fetchWithRetry(
     url: string,
-    maxRetries = 5,
+    maxRetries = 3,
     options?: { method?: string; body?: string; extraHeaders?: Record<string, string> }
   ): Promise<Response> {
     let delay = 2000
