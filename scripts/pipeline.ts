@@ -38,6 +38,11 @@ import { fetchHousingCourtCounts } from "@/lib/nyc/housing-court"
 import { fetchDOFMarketValues } from "@/lib/nyc/dof-assessment"
 import { fetchDOSEntityInfo } from "@/lib/nyc/ny-dos"
 import { fetchRegAgreements, type RegAgreement } from "@/lib/nyc/hpd-reg-agreements"
+import { fetchScrieDrie } from "@/lib/nyc/scrie-drie"
+import { fetchMitchellLama } from "@/lib/nyc/mitchell-lama"
+import { fetchHPDAffordable } from "@/lib/nyc/hpd-affordable"
+import { fetchLIHTC } from "@/lib/nyc/hud-lihtc"
+import { fetchSection8 } from "@/lib/nyc/hud-section8"
 import { scoreAll, type ScoringExtra } from "@/lib/analysis/scoring"
 import { EXEMPTION_CODES_421A, EXEMPTION_CODES_J51 } from "@/lib/analysis/config"
 import type { ExemptionRecord, HPDData, PLUTOData, ACRISRecord, PipelineRun } from "@/types"
@@ -597,6 +602,134 @@ async function main() {
       nonpaymentCount: court?.nonpaymentCases ?? 0,
       dofMarketValue: dofMap.get(bbl) ?? null,
     })
+  }
+
+  // Step 6.6: Subsidy programs — SCRIE/DRIE, Mitchell-Lama, HPD Affordable, LIHTC, Section 8 (non-fatal)
+  try {
+    console.log("[pipeline] Fetching subsidy program data...")
+    const tSubsidy = Date.now()
+
+    // SCRIE + DRIE — PDF reports from DOF (all 5 boroughs)
+    const scrieDrieMap = await fetchScrieDrie()
+    console.log(`[pipeline] SCRIE/DRIE: ${scrieDrieMap.size} BBLs`)
+
+    // Mitchell-Lama — HPD buildings under jurisdiction dataset
+    const mlMap = await fetchMitchellLama()
+    console.log(`[pipeline] Mitchell-Lama: ${mlMap.size} buildings`)
+
+    // HPD Affordable Production by Building
+    const hpdAffMap = await fetchHPDAffordable(bbls)
+    console.log(`[pipeline] HPD Affordable: ${hpdAffMap.size} buildings`)
+
+    // LIHTC — build PLUTO coord index for lat/lon matching
+    const plutoCoords = new Map<string, { latitude: number; longitude: number }>()
+    for (const [bbl, pluto] of plutoMap) {
+      if (pluto.latitude && pluto.longitude) {
+        plutoCoords.set(bbl, { latitude: pluto.latitude, longitude: pluto.longitude })
+      }
+    }
+    const lihtcMap = await fetchLIHTC(plutoCoords)
+    console.log(`[pipeline] LIHTC: ${lihtcMap.size} buildings matched`)
+
+    // Section 8 — build PLUTO address index for address matching
+    const plutoAddresses = new Map<string, string>()
+    for (const [bbl, pluto] of plutoMap) {
+      if (pluto.address) {
+        const key = pluto.address.toUpperCase().trim()
+        plutoAddresses.set(key, bbl)
+      }
+    }
+    const section8Map = await fetchSection8(plutoAddresses)
+    console.log(`[pipeline] Section 8: ${section8Map.size} buildings matched`)
+
+    // Upsert all subsidy records into subsidy_programs table
+    const subsidyRows: Record<string, unknown>[] = []
+
+    for (const [bbl, r] of scrieDrieMap) {
+      if (r.scrie_active_tenants > 0 || r.scrie_total_monthly_credit > 0) {
+        subsidyRows.push({
+          bbl, program: "SCRIE",
+          scrie_active_tenants: r.scrie_active_tenants,
+          scrie_total_monthly_credit: r.scrie_total_monthly_credit,
+          is_active: r.scrie_active_tenants > 0,
+          fetched_at: new Date().toISOString(),
+        })
+      }
+      if (r.drie_active_tenants > 0 || r.drie_total_monthly_credit > 0) {
+        subsidyRows.push({
+          bbl, program: "DRIE",
+          scrie_active_tenants: r.drie_active_tenants,
+          scrie_total_monthly_credit: r.drie_total_monthly_credit,
+          is_active: r.drie_active_tenants > 0,
+          fetched_at: new Date().toISOString(),
+        })
+      }
+    }
+
+    for (const [bbl, r] of mlMap) {
+      subsidyRows.push({
+        bbl, program: "MITCHELL_LAMA",
+        program_detail: r.program_detail,
+        is_active: !r.lifecycle || r.lifecycle.toUpperCase() === "ACTIVE",
+        fetched_at: new Date().toISOString(),
+      })
+    }
+
+    for (const [bbl, r] of hpdAffMap) {
+      subsidyRows.push({
+        bbl, program: "HPD_AFFORDABLE",
+        hpd_project_id: r.hpd_project_id,
+        hpd_extended_affordability: r.hpd_extended_affordability,
+        ami_extremely_low: r.ami_extremely_low,
+        ami_very_low: r.ami_very_low,
+        ami_low: r.ami_low,
+        ami_moderate: r.ami_moderate,
+        ami_middle: r.ami_middle,
+        units_assisted: r.total_affordable_units,
+        start_date: r.project_start_date ?? null,
+        is_active: true,
+        fetched_at: new Date().toISOString(),
+      })
+    }
+
+    for (const [bbl, r] of lihtcMap) {
+      subsidyRows.push({
+        bbl, program: "LIHTC",
+        units_assisted: r.li_units,
+        lihtc_credit_year: r.yr_alloc,
+        lihtc_compliance_end: r.compliance_end,
+        start_date: r.yr_pis ? `${r.yr_pis}-01-01` : null,
+        end_date: r.compliance_end ? `${r.compliance_end}-12-31` : null,
+        is_active: !r.compliance_end || r.compliance_end >= new Date().getFullYear(),
+        fetched_at: new Date().toISOString(),
+      })
+    }
+
+    for (const [bbl, r] of section8Map) {
+      subsidyRows.push({
+        bbl, program: "SECTION_8",
+        program_detail: r.program_type,
+        hud_contract_number: r.contract_number,
+        hud_contract_expiration: r.contract_expiration ?? null,
+        units_assisted: r.assisted_units,
+        end_date: r.contract_expiration ?? null,
+        is_active: r.contract_status?.toUpperCase() === "ACTIVE",
+        fetched_at: new Date().toISOString(),
+      })
+    }
+
+    // Upsert in batches
+    for (let i = 0; i < subsidyRows.length; i += UPSERT_BATCH) {
+      const batch = subsidyRows.slice(i, i + UPSERT_BATCH)
+      await withRetry(async () => {
+        const { error } = await supabase.from("subsidy_programs").upsert(batch, { onConflict: "bbl,program" })
+        if (error) throw new Error(`[subsidy_programs upsert] ${error.message}`)
+      })
+    }
+
+    console.log(`[pipeline] Subsidy programs: ${subsidyRows.length} rows upserted (${Date.now() - tSubsidy}ms)`)
+  } catch (err) {
+    console.warn(`[pipeline] Subsidy programs failed (non-fatal): ${err}`)
   }
 
   // Step 7: Scores (now with all enrichment data)
