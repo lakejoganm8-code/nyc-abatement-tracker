@@ -82,52 +82,58 @@ export async function fetchRegAgreements(
   // Build doc_type IN clause
   const typeIn = REG_AGREEMENT_TYPES.map((t) => `'${t}'`).join(",")
 
-  // Query ACRIS Legals: BBL match + doc_type filter
+  // Query ACRIS Legals: BBL match only (doc_type is on Master, not Legals)
   const legalRows = await runChunked(bbls, CHUNK, CONCURRENCY, (chunk) => {
     const bblClause = buildACRISOrClause(chunk)
     return client.fetchAll(LEGALS_DATASET, {
-      $where: `(${bblClause}) AND doc_type IN (${typeIn})`,
-      $select: "document_id,borough,block,lot,doc_type",
+      $where: `(${bblClause})`,
+      $select: "document_id,borough,block,lot",
     }) as Promise<Record<string, string>[]>
   })
 
   if (legalRows.length === 0) return result
 
-  // Map doc_id → { bbl, doc_type }
-  const docToBBL = new Map<string, { bbl: string; docType: string }>()
+  // Map doc_id → bbl (doc_type unknown until we hit Master)
+  const docToBBL = new Map<string, string>()
+  const bblSet = new Set(bbls)
   for (const row of legalRows) {
     const boro = row.borough ?? "0"
     const block = (row.block ?? "0").padStart(5, "0")
     const lot = (row.lot ?? "0").padStart(4, "0")
     const bbl = `${boro}${block}${lot}`
     const docId = row.document_id
-    if (docId && bbls.includes(bbl)) {
-      docToBBL.set(docId, { bbl, docType: row.doc_type ?? "" })
+    if (docId && bblSet.has(bbl)) {
+      docToBBL.set(docId, bbl)
     }
   }
 
   if (docToBBL.size === 0) return result
 
-  // Fetch Master records for dates
+  // Fetch Master records — filter by doc_type here, get date
   const docIds = Array.from(docToBBL.keys())
   const masterRows = await runChunked(docIds, 200, CONCURRENCY, (chunk) => {
     const inClause = chunk.map((id) => `'${id}'`).join(",")
     return client.fetchAll(MASTER_DATASET, {
-      $where: `document_id IN (${inClause})`,
-      $select: "document_id,doc_date",
+      $where: `document_id IN (${inClause}) AND doc_type IN (${typeIn})`,
+      $select: "document_id,doc_type,doc_date",
     }) as Promise<Record<string, string>[]>
   })
 
-  const dateByDoc = new Map<string, string>()
+  const masterByDoc = new Map<string, { docType: string; docDate: string | null }>()
   for (const row of masterRows) {
-    if (row.document_id && row.doc_date) {
-      dateByDoc.set(row.document_id, row.doc_date)
+    if (row.document_id) {
+      masterByDoc.set(row.document_id, {
+        docType: row.doc_type ?? "",
+        docDate: row.doc_date ?? null,
+      })
     }
   }
 
   // Build result — keep most recent agreement per BBL
-  for (const [docId, { bbl, docType }] of docToBBL) {
-    const docDate = dateByDoc.get(docId) ?? null
+  for (const [docId, bbl] of docToBBL) {
+    const master = masterByDoc.get(docId)
+    if (!master) continue  // not a reg agreement doc type
+    const { docType, docDate } = master
     const existing = result.get(bbl)
 
     // Prefer more recent document date
