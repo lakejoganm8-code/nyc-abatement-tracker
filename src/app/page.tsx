@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { DashboardView } from "@/components/DashboardView"
 import { FilterBar } from "@/components/FilterBar"
 import type { PropertyRow } from "@/components/PropertyTable"
+import { LEAD_FILTERS } from "@/lib/analysis/lead-filters"
 
 interface PageProps {
   searchParams: Promise<Record<string, string>>
@@ -28,6 +29,8 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
   const buildingClass  = searchParams.buildingClass ?? null
   const search         = searchParams.search ?? null
   const motivatedOnly  = searchParams.motivatedOnly === "1"
+  const leadFiltersParam = searchParams.leadFilters ?? ""
+  const selectedLeadFilters = leadFiltersParam ? leadFiltersParam.split(",").filter(Boolean) : []
 
   let query = supabase
     .from("property_pipeline")
@@ -73,6 +76,12 @@ async function PropertiesList({ searchParams }: { searchParams: Record<string, s
     query = query
       .in("sell_likelihood_label", ["high", "very high"])
       .eq("suppress_from_leads", false)
+  }
+
+  // Lead list filters — AND logic, each adds an eq(col, true) clause
+  for (const filterValue of selectedLeadFilters) {
+    const filter = LEAD_FILTERS.find((f) => f.value === filterValue)
+    if (filter) query = query.eq(filter.dbColumn, true)
   }
 
   const { data, error } = await query

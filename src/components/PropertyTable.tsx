@@ -12,6 +12,7 @@ import {
 import { useState } from "react"
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { LEAD_FILTERS, BADGE_STYLES } from "@/lib/analysis/lead-filters"
 
 export interface PropertyRow {
   bbl: string
@@ -66,7 +67,17 @@ export interface PropertyRow {
   refi_pressure: boolean
   sell_likelihood_score: number | null
   sell_likelihood_label: string | null
+  sell_signals: string[] | null
   suppress_from_leads: boolean
+  mortgage_date: string | null
+  mortgage_portfolio_count: number | null
+  // Lead-list flags
+  is_tired_landlord: boolean
+  is_free_and_clear: boolean
+  is_high_refi_pressure: boolean
+  is_tax_distress: boolean
+  is_upside_down: boolean
+  is_large_value_drop: boolean
 }
 
 const col = createColumnHelper<PropertyRow>()
@@ -312,14 +323,50 @@ const COLUMNS = [
         label === "high"      ? "text-amber-400 bg-amber-950/50" :
         label === "medium"    ? "text-sky-400 bg-sky-950/40" :
         "text-muted-foreground bg-muted/30"
+      const signals = row.sell_signals
+      const signalCount = signals?.length ?? 0
       return (
         <div>
           <span className={cn("text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase", cls)}>
             {label}
           </span>
-          {row.refi_pressure && (
+          {signalCount > 0 && (
+            <div
+              title={signals!.join("\n")}
+              className="text-[10px] text-muted-foreground/50 cursor-help mt-0.5"
+            >
+              {signalCount} signal{signalCount > 1 ? "s" : ""}
+            </div>
+          )}
+          {row.refi_pressure && !signalCount && (
             <div className="text-[10px] text-red-400/70 mt-0.5">refi pressure</div>
           )}
+        </div>
+      )
+    },
+  }),
+  col.display({
+    id: "lead_types",
+    header: "Lead Type",
+    enableSorting: false,
+    cell: ({ row }) => {
+      const p = row.original
+      if (p.suppress_from_leads) return null
+      const active = LEAD_FILTERS.filter(
+        (f) => p[f.dbColumn as keyof PropertyRow] === true
+      )
+      if (!active.length) return <span className="text-muted-foreground/30 text-[10px]">—</span>
+      return (
+        <div className="flex flex-wrap gap-0.5 max-w-[140px]">
+          {active.map((f) => (
+            <span
+              key={f.value}
+              title={f.description}
+              className={cn("text-[9px] font-mono font-semibold px-1 py-0.5 rounded", BADGE_STYLES[f.color])}
+            >
+              {f.shortLabel}
+            </span>
+          ))}
         </div>
       )
     },

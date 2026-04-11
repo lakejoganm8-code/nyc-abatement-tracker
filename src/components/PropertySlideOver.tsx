@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { X, ExternalLink, TrendingDown, TrendingUp, Shield, AlertTriangle, Building2, DollarSign, BarChart3, Phone, Zap, Users, Flame, Target } from "lucide-react"
 import { isAgencyLender } from "@/lib/analysis/owner-profile"
 import { getMortgageVintage, PRESSURE_STYLES } from "@/lib/analysis/mortgage-vintage"
+import { LEAD_FILTERS, BADGE_STYLES } from "@/lib/analysis/lead-filters"
 import { cn } from "@/lib/utils"
 
 interface PropertyData {
@@ -88,6 +89,13 @@ interface PropertyData {
   sell_likelihood_label: string | null
   sell_signals: string[] | null
   suppress_from_leads: boolean
+  // Lead-list flags
+  is_tired_landlord: boolean
+  is_free_and_clear: boolean
+  is_high_refi_pressure: boolean
+  is_tax_distress: boolean
+  is_upside_down: boolean
+  is_large_value_drop: boolean
 }
 
 interface PropertySlideOverProps {
@@ -489,6 +497,30 @@ export function PropertySlideOver({ bbl, onClose }: PropertySlideOverProps) {
                       ))}
                     </div>
                   )}
+
+                  {/* Lead categories */}
+                  {(() => {
+                    const active = LEAD_FILTERS.filter(
+                      (f) => property[f.dbColumn as keyof PropertyData] === true
+                    )
+                    if (!active.length || property.suppress_from_leads) return null
+                    return (
+                      <div className="py-2 border-b border-border/20">
+                        <div className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mb-1.5">Lead categories</div>
+                        <div className="flex flex-wrap gap-1">
+                          {active.map((f) => (
+                            <span
+                              key={f.value}
+                              title={f.description}
+                              className={cn("text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded cursor-help", BADGE_STYLES[f.color])}
+                            >
+                              {f.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                   {/* Research links */}
                   <div className="py-2 flex flex-wrap gap-2">

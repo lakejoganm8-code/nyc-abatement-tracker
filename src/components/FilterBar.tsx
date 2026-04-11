@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Search, X, Flame } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { LEAD_FILTERS, CHIP_ACTIVE_STYLES } from "@/lib/analysis/lead-filters"
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -73,6 +74,23 @@ export function FilterBar() {
   const maxPortfolio  = searchParams.get("maxPortfolio") ?? ""
   const owner         = searchParams.get("owner")       ?? ""
   const motivatedOnly = searchParams.get("motivatedOnly") === "1"
+
+  // Lead list filters: comma-separated e.g. "tired_landlord,high_refi"
+  const leadFiltersParam = searchParams.get("leadFilters") ?? ""
+  const selectedLeadFilters = leadFiltersParam ? leadFiltersParam.split(",") : []
+
+  const toggleLeadFilter = useCallback((value: string) => {
+    const next = selectedLeadFilters.includes(value)
+      ? selectedLeadFilters.filter((f) => f !== value)
+      : [...selectedLeadFilters, value]
+    const params = new URLSearchParams(searchParams.toString())
+    if (next.length > 0) {
+      params.set("leadFilters", next.join(","))
+    } else {
+      params.delete("leadFilters")
+    }
+    router.push(`${pathname}?${params.toString()}`)
+  }, [selectedLeadFilters, searchParams, router, pathname])
 
   const hasFilters = searchParams.toString().length > 0
 
@@ -259,6 +277,27 @@ export function FilterBar() {
           onBlur={(e) => updateParam("owner", e.target.value || null)}
           onKeyDown={(e) => { if (e.key === "Enter") updateParam("owner", (e.target as HTMLInputElement).value || null) }}
         />
+      </div>
+
+      {/* Row 3: Lead type filter chips */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted-foreground font-medium shrink-0">Lead type</span>
+        <div className="h-4 w-px bg-border/60" />
+        {LEAD_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            title={f.description}
+            onClick={() => toggleLeadFilter(f.value)}
+            className={cn(
+              "h-7 px-2.5 rounded text-[11px] font-medium border transition-all",
+              selectedLeadFilters.includes(f.value)
+                ? CHIP_ACTIVE_STYLES[f.color]
+                : "bg-muted/50 border-border/60 text-muted-foreground hover:text-foreground hover:border-border"
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
     </div>
   )

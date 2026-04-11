@@ -145,9 +145,9 @@ export function buildOwnerProfile(params: {
 
   // Ownership duration
   if (ownershipYears != null && ownershipYears >= 25) {
-    score += 30; signals.push(`${ownershipYears}-year hold — very long basis, seller fatigue likely`)
+    score += 30; signals.push(`Tired Landlord — ${ownershipYears}-year hold, very long basis, high seller fatigue`)
   } else if (ownershipYears != null && ownershipYears >= 15) {
-    score += 18; signals.push(`${ownershipYears}-year hold — long basis, possible seller fatigue`)
+    score += 18; signals.push(`Tired Landlord — ${ownershipYears}-year hold, long basis, seller fatigue likely`)
   } else if (ownershipYears != null && ownershipYears >= 10) {
     score += 8; signals.push(`${ownershipYears}-year hold`)
   }
